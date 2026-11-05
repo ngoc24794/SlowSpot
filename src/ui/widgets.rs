@@ -206,6 +206,83 @@ pub fn process_kind_badge(ui: &mut Ui, kind: ProcessKind) {
     render_badge(ui, text, bg_color, fg_color);
 }
 
+/// Renders a crisp checkmark icon using `egui::Painter`.
+pub fn draw_checkmark(ui: &mut Ui, color: Color32, size: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let stroke = Stroke::new((size * 0.12).max(1.5), color);
+        let p1 = Pos2::new(
+            rect.left() + rect.width() * 0.18,
+            rect.top() + rect.height() * 0.52,
+        );
+        let p2 = Pos2::new(
+            rect.left() + rect.width() * 0.42,
+            rect.top() + rect.height() * 0.78,
+        );
+        let p3 = Pos2::new(
+            rect.left() + rect.width() * 0.85,
+            rect.top() + rect.height() * 0.25,
+        );
+        p.line_segment([p1, p2], stroke);
+        p.line_segment([p2, p3], stroke);
+    }
+    resp
+}
+
+/// Renders a warning triangle icon using `egui::Painter`.
+pub fn draw_warning_icon(ui: &mut Ui, color: Color32, size: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let stroke = Stroke::new((size * 0.10).max(1.2), color);
+        let top = Pos2::new(rect.center().x, rect.top() + rect.height() * 0.10);
+        let left = Pos2::new(
+            rect.left() + rect.width() * 0.10,
+            rect.bottom() - rect.height() * 0.10,
+        );
+        let right = Pos2::new(
+            rect.right() - rect.width() * 0.10,
+            rect.bottom() - rect.height() * 0.10,
+        );
+        p.line_segment([top, left], stroke);
+        p.line_segment([left, right], stroke);
+        p.line_segment([right, top], stroke);
+
+        let mid_x = rect.center().x;
+        let line_top = rect.top() + rect.height() * 0.38;
+        let line_bot = rect.top() + rect.height() * 0.62;
+        p.line_segment(
+            [Pos2::new(mid_x, line_top), Pos2::new(mid_x, line_bot)],
+            stroke,
+        );
+        let dot_y = rect.top() + rect.height() * 0.75;
+        p.circle_filled(Pos2::new(mid_x, dot_y), stroke.width * 0.6, color);
+    }
+    resp
+}
+
+/// Renders a simple lock icon (ổ khoá) using `egui::Painter`.
+pub fn draw_lock_icon(ui: &mut Ui, color: Color32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(14.0, 14.0), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        // Shackle (upper arch)
+        let shackle = Rect::from_min_size(
+            Pos2::new(rect.left() + 3.0, rect.top() + 1.0),
+            Vec2::new(8.0, 6.0),
+        );
+        p.rect_stroke(shackle, 4.0, Stroke::new(1.4, color), StrokeKind::Inside);
+        // Lock body (lower block)
+        let body = Rect::from_min_size(
+            Pos2::new(rect.left() + 1.5, rect.top() + 5.5),
+            Vec2::new(11.0, 7.5),
+        );
+        p.rect_filled(body, 1.5, color);
+    }
+    resp
+}
+
 fn render_badge(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) {
     let font_id = egui::FontId::proportional(11.0);
     let galley = ui.painter().layout_no_wrap(text.to_string(), font_id, fg);

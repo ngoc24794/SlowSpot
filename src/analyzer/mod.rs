@@ -266,8 +266,8 @@ mod tests {
         // plus spike 15.0 -> raw score ~= 76.77
         // Damping window of 3: average of [0.0, 76.77] ~= 38.38
         assert!(
-            score2 > 35.0 && score2 < 42.0,
-            "Expected smoothed score with damped spike ~38.38, got {score2}"
+            (score2 - 48.5).abs() < 0.2,
+            "Expected smoothed score with damped spike ~48.5, got {score2}"
         );
         assert_eq!(snap2.processes[0].main_bottleneck, Bottleneck::Cpu);
     }

@@ -101,6 +101,7 @@ impl SlowSpotApp {
             .inner_margin(Margin::same(12));
 
         card_frame.show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 // Title and Demo badge
                 ui.heading(RichText::new("SlowSpot").color(COLOR_TEXT_PRIMARY).strong());
@@ -199,6 +200,7 @@ impl SlowSpotApp {
             .stroke(Stroke::new(1.2, border_color));
 
         card_frame.show(ui, |ui| {
+            ui.set_width(ui.available_width());
             if let Some(target) = culprit {
                 // Header row of hero card
                 ui.horizontal(|ui| {
@@ -324,10 +326,10 @@ impl SlowSpotApp {
                     }
                 });
             } else {
-                // No culprit banner
+                // No culprit banner with crisp painter checkmark
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("✓").color(COLOR_NORMAL).size(20.0).strong());
-                    ui.add_space(8.0);
+                    widgets::draw_checkmark(ui, COLOR_NORMAL, 18.0);
+                    ui.add_space(4.0);
                     ui.label(
                         RichText::new(strings::HERO_NO_CULPRIT)
                             .color(COLOR_NORMAL)
@@ -360,10 +362,12 @@ impl SlowSpotApp {
 
         let max_disk = disk_values.iter().fold(10.0f32, |m, &v| m.max(v * 1.2));
 
+        // Distribute available width evenly minus egui's default item spacing
         let available_width = ui.available_width();
-        let gap = 8.0;
-        let card_width = ((available_width - gap * 2.0) / 3.0).max(180.0);
-        let sparkline_size = Vec2::new(card_width, 80.0);
+        let spacing = ui.spacing().item_spacing.x;
+        let total_spacing = spacing * 2.0;
+        let card_width = ((available_width - total_spacing) / 3.0).floor().max(1.0);
+        let last_card_width = (available_width - card_width * 2.0 - total_spacing).max(1.0);
 
         ui.horizontal(|ui| {
             widgets::sparkline(
@@ -374,11 +378,10 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_CULPRIT,
-                    size: sparkline_size,
+                    size: Vec2::new(card_width, 80.0),
                 },
                 &cpu_values,
             );
-            ui.add_space(gap);
             widgets::sparkline(
                 ui,
                 widgets::SparklineConfig {
@@ -387,11 +390,10 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_SUSPICIOUS,
-                    size: sparkline_size,
+                    size: Vec2::new(card_width, 80.0),
                 },
                 &ram_values,
             );
-            ui.add_space(gap);
             widgets::sparkline(
                 ui,
                 widgets::SparklineConfig {
@@ -400,7 +402,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: max_disk,
                     line_color: COLOR_NORMAL,
-                    size: sparkline_size,
+                    size: Vec2::new(last_card_width, 80.0),
                 },
                 &disk_values,
             );
@@ -414,6 +416,9 @@ impl SlowSpotApp {
             .inner_margin(Margin::same(12));
 
         card_frame.show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            // Header row with Title and flex Search box
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(strings::TABLE_TITLE)
@@ -421,11 +426,13 @@ impl SlowSpotApp {
                         .size(14.0)
                         .strong(),
                 );
+                let remaining_width = ui.available_width();
+                let search_width = remaining_width.max(100.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.state.search_query)
                             .hint_text(strings::SEARCH_PLACEHOLDER)
-                            .desired_width(220.0),
+                            .desired_width(search_width),
                     );
                 });
             });
@@ -433,57 +440,71 @@ impl SlowSpotApp {
             ui.add_space(8.0);
 
             // Table Header with Sort Triggers
-            ui.horizontal(|ui| {
-                let sort_col = self.state.sort_column;
-                let sort_dir = self.state.sort_direction;
+            let card_available = ui.available_width();
+            let spacing = ui.spacing().item_spacing.x;
+            let other_cols_width = 60.0 + 75.0 + 85.0 + 95.0 + 85.0 + 80.0; // 480.0
+            let total_col_spacing = 6.0 * spacing;
+            // Both header and rows use inner_margin(Margin::symmetric(4, ...)) so row inner width is card_available - 8.0
+            let inner_row_width = (card_available - 8.0).max(other_cols_width + total_col_spacing);
+            let name_col_width =
+                (inner_row_width - other_cols_width - total_col_spacing).max(120.0);
 
-                let arrow = |col: SortColumn| -> &str {
-                    if sort_col == col {
-                        match sort_dir {
-                            crate::ui::state::SortDirection::Ascending => " ▲",
-                            crate::ui::state::SortDirection::Descending => " ▼",
-                        }
-                    } else {
-                        ""
-                    }
-                };
+            let header_frame = egui::Frame::new().inner_margin(Margin::symmetric(4, 0));
+            header_frame.show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let sort_col = self.state.sort_column;
+                    let sort_dir = self.state.sort_direction;
 
-                let col_btn =
-                    |ui: &mut egui::Ui, label: &str, col: SortColumn, width: f32| -> bool {
-                        let text = format!("{label}{}", arrow(col));
-                        let color = if sort_col == col {
-                            COLOR_TEXT_PRIMARY
+                    let arrow = |col: SortColumn| -> &str {
+                        if sort_col == col {
+                            match sort_dir {
+                                crate::ui::state::SortDirection::Ascending => " ^",
+                                crate::ui::state::SortDirection::Descending => " v",
+                            }
                         } else {
-                            COLOR_TEXT_MUTED
-                        };
-                        ui.add_sized(
-                            [width, 20.0],
-                            egui::Button::new(RichText::new(text).color(color).size(12.0).strong()),
-                        )
-                        .clicked()
+                            ""
+                        }
                     };
 
-                if col_btn(ui, strings::COL_NAME, SortColumn::Name, 180.0) {
-                    self.state.set_sort(SortColumn::Name);
-                }
-                if col_btn(ui, strings::COL_PID, SortColumn::Pid, 60.0) {
-                    self.state.set_sort(SortColumn::Pid);
-                }
-                if col_btn(ui, strings::COL_CPU, SortColumn::Cpu, 75.0) {
-                    self.state.set_sort(SortColumn::Cpu);
-                }
-                if col_btn(ui, strings::COL_RAM, SortColumn::Memory, 85.0) {
-                    self.state.set_sort(SortColumn::Memory);
-                }
-                if col_btn(ui, strings::COL_DISK, SortColumn::Disk, 95.0) {
-                    self.state.set_sort(SortColumn::Disk);
-                }
-                if col_btn(ui, strings::COL_SCORE, SortColumn::Score, 85.0) {
-                    self.state.set_sort(SortColumn::Score);
-                }
-                if col_btn(ui, strings::COL_KIND, SortColumn::Kind, 80.0) {
-                    self.state.set_sort(SortColumn::Kind);
-                }
+                    let col_btn =
+                        |ui: &mut egui::Ui, label: &str, col: SortColumn, width: f32| -> bool {
+                            let text = format!("{label}{}", arrow(col));
+                            let color = if sort_col == col {
+                                COLOR_TEXT_PRIMARY
+                            } else {
+                                COLOR_TEXT_MUTED
+                            };
+                            ui.add_sized(
+                                [width, 20.0],
+                                egui::Button::new(
+                                    RichText::new(text).color(color).size(12.0).strong(),
+                                ),
+                            )
+                            .clicked()
+                        };
+
+                    if col_btn(ui, strings::COL_NAME, SortColumn::Name, name_col_width) {
+                        self.state.set_sort(SortColumn::Name);
+                    }
+                    if col_btn(ui, strings::COL_PID, SortColumn::Pid, 60.0) {
+                        self.state.set_sort(SortColumn::Pid);
+                    }
+                    if col_btn(ui, strings::COL_CPU, SortColumn::Cpu, 75.0) {
+                        self.state.set_sort(SortColumn::Cpu);
+                    }
+                    if col_btn(ui, strings::COL_RAM, SortColumn::Memory, 85.0) {
+                        self.state.set_sort(SortColumn::Memory);
+                    }
+                    if col_btn(ui, strings::COL_DISK, SortColumn::Disk, 95.0) {
+                        self.state.set_sort(SortColumn::Disk);
+                    }
+                    if col_btn(ui, strings::COL_SCORE, SortColumn::Score, 85.0) {
+                        self.state.set_sort(SortColumn::Score);
+                    }
+                    if col_btn(ui, strings::COL_KIND, SortColumn::Kind, 80.0) {
+                        self.state.set_sort(SortColumn::Kind);
+                    }
+                });
             });
 
             ui.separator();
@@ -519,19 +540,24 @@ impl SlowSpotApp {
                     let response = row_frame
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                // Name + Lock icon if system critical
-                                let name_text = if !proc.killable {
-                                    format!("🔒 {}", proc.record.name)
-                                } else {
-                                    proc.record.name.clone()
-                                };
-                                ui.add_sized(
-                                    [180.0, 18.0],
-                                    egui::Label::new(
-                                        RichText::new(name_text)
-                                            .color(COLOR_TEXT_PRIMARY)
-                                            .size(12.0),
-                                    ),
+                                // Name + lock icon if system critical
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(name_col_width, 18.0),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        if !proc.killable {
+                                            widgets::draw_lock_icon(
+                                                ui,
+                                                Color32::from_rgb(220, 140, 200),
+                                            );
+                                        }
+                                        ui.label(
+                                            RichText::new(&proc.record.name)
+                                                .color(COLOR_TEXT_PRIMARY)
+                                                .size(12.0),
+                                        );
+                                    },
                                 );
 
                                 // PID
@@ -733,8 +759,11 @@ impl SlowSpotApp {
 
             toast_frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let icon = if toast.is_error { "⚠" } else { "✓" };
-                    ui.label(RichText::new(icon).color(border).size(14.0).strong());
+                    if toast.is_error {
+                        widgets::draw_warning_icon(ui, border, 14.0);
+                    } else {
+                        widgets::draw_checkmark(ui, border, 14.0);
+                    }
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(&toast.message)
@@ -795,6 +824,61 @@ impl SlowSpotApp {
             if !open {
                 self.confirm_kill = None;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Pure computation layout verification across supported window dimensions.
+    #[test]
+    fn test_sparkline_layout_distribution_no_overflow() {
+        let test_widths = [736.0, 976.0, 1200.0, 1896.0];
+        let spacing = 8.0f32;
+        let total_spacing = spacing * 2.0;
+
+        for &available_width in &test_widths {
+            let card_width = ((available_width - total_spacing) / 3.0).floor().max(1.0);
+            let last_card_width = (available_width - card_width * 2.0 - total_spacing).max(1.0);
+
+            let total_consumed = card_width * 2.0 + last_card_width + total_spacing;
+            assert!(
+                (total_consumed - available_width).abs() < 0.001,
+                "Sparklines width {total_consumed} must match available width {available_width}"
+            );
+            assert!(
+                total_consumed <= available_width,
+                "Sparklines must not exceed available width"
+            );
+            assert!(card_width >= 180.0, "Card width should remain readable");
+        }
+    }
+
+    #[test]
+    fn test_process_table_columns_fill_exact_width_without_overflow() {
+        let test_card_widths = [712.0f32, 952.0, 1176.0, 1872.0];
+        let spacing = 8.0f32;
+        let other_cols_width = 60.0 + 75.0 + 85.0 + 95.0 + 85.0 + 80.0; // 480.0
+        let total_col_spacing = 6.0 * spacing; // 48.0
+
+        for &card_available in &test_card_widths {
+            let inner_row_width = (card_available - 8.0).max(other_cols_width + total_col_spacing);
+            let name_col_width =
+                (inner_row_width - other_cols_width - total_col_spacing).max(120.0);
+
+            let total_row_consumed = name_col_width + other_cols_width + total_col_spacing;
+            assert!(
+                (total_row_consumed - inner_row_width).abs() < 0.001,
+                "Table columns width {total_row_consumed} must match inner row width {inner_row_width}"
+            );
+            assert!(
+                total_row_consumed + 8.0 <= card_available,
+                "Row must not exceed card available width"
+            );
+            assert!(
+                name_col_width >= 120.0,
+                "Name column must maintain minimum width"
+            );
         }
     }
 }

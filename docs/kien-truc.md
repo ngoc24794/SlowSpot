@@ -171,9 +171,9 @@ $$S = \min\left(100, \; 0.7 \cdot \max(f_{\text{cpu}}, f_{\text{disk}}, f_{\text
 1. **Thành phần CPU ($f_{\text{cpu}}$)**:
    $$f_{\text{cpu}}(C) = \begin{cases} 
    0 & \text{nếu } C < 5\% \\
-   \left(\frac{C - 5}{95}\right)^{1.2} \times 100 & \text{nếu } C \ge 5\%
+   \min\left(100, \; \frac{C - 5}{65 - 5} \times 100\right) & \text{nếu } C \ge 5\%
    \end{cases}$$
-   *(Sử dụng lũy thừa 1.2 để phạt mạnh các tiến trình ăn CPU trên 70%).*
+   *(Chuẩn hóa bão hòa tuyến tính với ngưỡng sàn `CPU_FLOOR_PERCENT = 5%` và ngưỡng bão hòa `CPU_SATURATION_PERCENT = 65%`).*
 
 2. **Thành phần Đĩa I/O ($f_{\text{disk}}$)**:
    Tổng tốc độ đĩa $D = \text{ReadRate} + \text{WriteRate}$ (MB/s).
@@ -332,8 +332,13 @@ Kế hoạch kiểm thử đảm bảo SlowSpot đạt chất lượng chuẩn s
 
 ### 7.1. Kiểm thử Đơn vị (Unit Tests)
 - **Kiểm thử Thuật toán `CulpritEngine`**:
-  - Test case: Truyền vào `ProcessMetric` với CPU 95%, Disk 0, RAM bình thường $\rightarrow$ Điểm phải $\ge 70$ (đạt ngưỡng Culprit).
-  - Test case: Truyền vào `ProcessMetric` với CPU 15%, Disk 80 MB/s $\rightarrow$ Điểm phải $\ge 75$ và cổ chai chính là Disk (bắt đúng bệnh nghẽn ổ đĩa).
+  - Test case: Truyền vào `ProcessMetric` với CPU 95%, Disk 0, RAM bình thường $\rightarrow$ Điểm phải $\ge 80$ (không spike $\approx 82$, có spike $\approx 97$, đạt ngưỡng Culprit).
+  - Test case: Hiệu chỉnh CPU bão hòa tuyến tính:
+    - CPU 67% $\rightarrow \approx 82$ điểm (Culprit).
+    - CPU 50% $\rightarrow \approx 61$ điểm (Suspicious).
+    - CPU 25% $\rightarrow \approx 27$ điểm (Normal).
+    - CPU 8% $\rightarrow < 10$ điểm.
+  - Test case: Truyền vào `ProcessMetric` với CPU 15%, Disk 80 MB/s $\rightarrow$ Điểm phải $\ge 75$ (đạt $\approx 82.5$) và cổ chai chính là Disk (bắt đúng bệnh nghẽn ổ đĩa).
   - Test case: Tiến trình nhàn rỗi (CPU 0.2%, Disk 0) $\rightarrow$ Điểm phải $\le 5$.
 - **Kiểm thử Bộ lọc `SafetyFilter`**:
   - Test case: Danh sách tiến trình chứa `csrss.exe`, `lsass.exe` $\rightarrow$ Kết quả hàm `is_killable()` bắt buộc trả về `false`.
