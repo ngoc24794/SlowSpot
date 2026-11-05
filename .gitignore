@@ -1,0 +1,46 @@
+# Rust / build
+target/
+dist/
+Cargo.lock.bak
+**/*.rs.bk
+*.pdb
+*.exe
+*.zip
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# AI coding agents (local only)
+.claude/
+.agents/
+.antigravity/
+.agy/
+.gemini/
+.cursor/
+.cursorrules
+.opencode/
+.aider*
+.codex/
+.windsurf/
+.continue/
+.cline/
+.clinerules
+.github/copilot-instructions.md
+.herdr/
+CLAUDE.md
+GEMINI.md
+.mcp.json
+
+# Git worktrees
+.worktrees/
+worktrees/
+../SlowSpot-wt-*/
