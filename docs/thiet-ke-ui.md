@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
-| 2.0.0 | Đã nghiệm thu & Chuẩn hoá | 05/11/2026 | SlowSpot UI/UX Design & Engineering Team |
+| 2.1.0 | Đã nghiệm thu & Hoàn thiện Feedback Vòng 1 | 05/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 
 ---
 
@@ -58,8 +58,8 @@ Toàn bộ chữ hiển thị cho người dùng đều vượt ngưỡng yêu c
 - **Tiêu đề Phụ (`FONT_SIZE_SUBHEADING`)**: `15.0 px` (In đậm, dùng cho tiêu đề bảng tiến trình và kết luận mượt mà).
 - **Thân bài Lớn (`FONT_SIZE_BODY_LARGE`)**: `14.0 px` (Giải thích nguyên nhân nghẽn hệ thống, hộp thoại xác nhận).
 - **Thân bài Chuẩn (`FONT_SIZE_BODY`)**: `13.0 px` (Hàng tiến trình, tên tiến trình trong bảng, thông báo toast).
-- **Chú thích (`FONT_SIZE_CAPTION`)**: `11.5 px` (Tiêu đề cột bảng, nhãn badge, đơn vị đo, phím tắt).
-- **Số liệu Nhỏ (`FONT_SIZE_TINY`)**: `10.0 px` (Mốc trục thời gian -60s / nay, gợi ý thanh trạng thái).
+- **Chú thích (`FONT_SIZE_CAPTION`)**: `12.0 px` (Tiêu đề cột bảng, nhãn badge, đơn vị đo, phím tắt, mốc trục thời gian, đảm bảo không có văn bản nào < 12px và luôn đạt tương phản >= 4.5:1).
+- **Số liệu Nhỏ (`FONT_SIZE_TINY`)**: `12.0 px` (Đồng bộ mức tối thiểu 12px theo quy chuẩn trợ năng a11y).
 
 ### 3.3. Định dạng Số Liệu (Tabular Figures)
 Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị với kiểu định dạng chữ số canh lề phải và cố định độ rộng (`monospace` / `tabular`) để đảm bảo các con số luôn thẳng cột khi quét dọc danh sách.
@@ -90,36 +90,40 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
   - 3 Chip chỉ số tài nguyên mini (`CPU`, `RAM`, `Đĩa`) tích hợp thanh đo tỷ lệ trực quan ngay bên trong chip.
 
 ### 5.2. Thẻ Thủ Phạm Chính (Top Culprit Hero Card)
+- **Bố cục thu gọn (Compact Height)**: Padding bên trong 12px x 8px, tối ưu chiều cao để dành trọn không gian cho bảng tiến trình hiển thị >= 10 hàng ở cửa sổ 1000x680.
 - **Khi có thủ phạm**:
   - Dòng 1: Tiêu đề `THỦ PHẠM CHÍNH` đỏ rực, Badge mức độ (`Thủ phạm` ◆ / `Đáng ngờ` ▲), Badge bảo vệ 🔒 (nếu là tiến trình cốt lõi), Điểm số góc phải `Điểm thủ phạm: 92/100`.
-  - Dòng 2: Tên file thực thi to bản (18px), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
+  - Dòng 2: Tên file thực thi to bản (15px), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
   - Dòng 3: Dãy nút hành động phân cấp trực quan:
-    1. **Nút Chính (Primary)**: `Đóng an toàn` (Tô nền xanh dương nổi bật, gửi `WM_CLOSE`).
-    2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Chỉ tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện sẽ ở trạng thái vô hiệu hoá kèm tooltip giải thích lý do cụ thể).
+    1. **Nút Chính (Primary)**: `Đóng an toàn` (Tô đặc màu xanh dương `COLOR_INFO`, chữ tối màu `COLOR_BG` đậm nét, không viền stroke giả lập focus).
+    2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện ở trạng thái vô hiệu hoá).
     3. **Nút Phụ (Secondary)**: `Mở thư mục` và `Bỏ qua thủ phạm này` (Dạng viền tối giản).
+  - Dòng 4 (Hiển thị ngay lý do vô hiệu hoá): Khi `Bắt buộc tắt` bị vô hiệu, lập tức hiển thị dòng chú thích nhỏ kèm biểu tượng cảnh báo ngay dưới nhóm nút (ví dụ `Bắt buộc tắt sẽ khả dụng nếu ứng dụng không đóng sau 5 giây` hoặc `Tiến trình hệ thống được bảo vệ — không thể tắt`), không bắt người dùng phải hover chuột mới biết lý do.
 - **Khi máy chạy mượt (No Culprit)**:
-  - Hiển thị thẻ xanh lá thanh lịch với biểu tượng dấu kiểm tra ✔ vẽ bằng Painter, nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú giải tỏa lo lắng của người dùng.
+  - Hiển thị 1 dòng duy nhất siêu gọn: Biểu tượng dấu kiểm tra ✔ xanh lá, nhãn `Máy đang chạy mượt mà` và phụ chú `— Không có tiến trình nào làm chậm PC`.
 
 ### 5.3. Biểu đồ Sparkline Thời gian Thực (Real-time Sparklines)
 - Gồm 3 biểu đồ đồng thời theo dõi lịch sử 60 giây của **CPU**, **RAM** và **Tốc độ Đĩa I/O**.
+- **Chiều rộng chia đều không tràn**: Chiều rộng 3 thẻ được tính toán chính xác bằng hàm thuần `calculate_sparkline_widths(available_width, spacing)` sao cho tổng 3 thẻ cộng 2 khoảng trống spacing bằng đúng 100% `available_width`.
 - **Vùng tô nhạt (Area Shading)**: Vẽ đa giác mờ bên dưới đường biểu đồ với độ mờ 12%, mang lại cảm giác chiều sâu của dữ liệu theo trường phái Swiss.
 - **Lưới tham chiếu mờ (Reference Grid)**: Các vạch kẻ ngang mờ nhạt tại các mốc 25%, 50%, 75% giúp ước lượng giá trị trực quan.
-- **Thông số đỉnh & đơn vị**: Hiển thị đồng thời giá trị tức thời lớn bên phải và giá trị đỉnh cao nhất trong 60 giây (`Đỉnh: 94.0%`).
-- **Trục thời gian**: Đánh dấu rõ ràng mốc `-60s` ở góc trái và `nay` ở góc phải.
+- **Thông số đỉnh & đơn vị**: Hiển thị đồng thời giá trị tức thời lớn bên phải và giá trị đỉnh cao nhất trong 60 giây (`Đỉnh: 94.0%`) với cỡ chữ 12px và màu chữ tương phản cao `COLOR_MUTED_FOREGROUND`.
+- **Trục thời gian**: Đánh dấu rõ ràng mốc `-60s` ở góc trái và `nay` ở góc phải với chữ 12px không bị mờ.
 - **Rà chuột soi dữ liệu (Hover Inspection)**: Khi di chuột lên biểu đồ, một đường chỉ dẫn dọc (hairline) xuất hiện kèm vòng tròn nhấn điểm và tooltip hiển thị số đo chính xác tại giây đó (ví dụ `-14s: 82.5%`).
 
 ### 5.4. Bảng Tiến Trình Tương Tác (Process Table)
-- **Tiêu đề cột phẳng (Flat Headers)**: Loại bỏ giao diện nút nổi 3D xám cũ kỹ; thay bằng tiêu đề chữ hoa nhỏ tinh tế, khi rê chuột chuyển sang biểu tượng bàn tay (`PointingHand`). Mũi tên sắp xếp (Tăng dần/Giảm dần) được vẽ sắc nét trực tiếp bằng Painter.
-- **Phân tách hàng trực quan**: Hàng cao 28px, đan xen màu zebra rất nhẹ (độ mờ 4% trên hàng lẻ) cùng đường phân cách mảnh màu border subtle.
+- **Tiêu đề cột phẳng (Flat Headers)**: Loại bỏ giao diện nút nổi 3D xám cũ kỹ; thay bằng tiêu đề chữ hoa nhỏ tinh tế, khi rê chuột chuyển sang biểu tượng bàn tay (`PointingHand`). Mũi tên sắp xếp (Tăng dần/Giảm dần) được vẽ sắc nét trực tiếp bằng Painter. Chiều cao dòng tiêu đề ~24-26px.
+- **Vùng cuộn nội bộ (Internal ScrollArea)**: Toàn bộ bảng danh sách tiến trình là vùng co giãn chiếm không gian còn lại và tự cuộn dọc bên trong. Tuyệt đối không có thanh cuộn bao toàn bộ trang dashboard, không gây giật lề hoặc cắt xén thẻ Đĩa I/O.
+- **Phân tách hàng trực quan**: Hàng cao 28-30px, đan xen màu zebra rất nhẹ (độ mờ 4% trên hàng lẻ) cùng đường phân cách mảnh màu border subtle.
 - **Hiệu ứng chọn hàng (Selection State)**: Hàng đang chọn đổi nền sang tông xanh thẫm và có thanh nhấn màu xanh dương (`COLOR_INFO`) dày 3px ở cạnh trái.
 - **Cột Điểm tiến trình**: Thanh tiến trình mini 38px bo góc kết hợp số điểm 0..100 đặt bên ngoài cạnh phải thanh, không còn tình trạng chữ đè lên vạch màu gây khó đọc.
 - **Nhận diện Tiến trình Hệ thống**: Các tiến trình được bảo vệ (`SystemCritical`) có biểu tượng ổ khoá 🔒 vẽ bằng Painter cạnh tên, tooltip hiển thị đầy đủ đường dẫn tệp thực thi (`exe_path`).
 - **Trạng thái Tìm kiếm Rỗng**: Khi không có tiến trình khớp với từ khoá tìm kiếm, bảng hiển thị thông điệp thân thiện `Không tìm thấy tiến trình nào phù hợp.`
 
-### 5.5. Thanh Trạng Thái Đáy (Bottom Status Bar)
-- Cố định ở cuối giao diện:
-  - Cánh trái: Bảng hướng dẫn phím tắt súc tích (`Ctrl+F: Tìm kiếm | Esc: Xoá / Đóng | Lên/Xuống: Chọn | Space: Tạm dừng`).
-  - Cánh phải: Thời gian cập nhật gần nhất (`Cập nhật: vừa xong` hoặc `X s trước`), Tổng số tiến trình thu thập (`Tổng số: 120 tiến trình`), và huy hiệu chế độ giả lập nếu có.
+### 5.5. Thanh Trạng Thái Đáy Cố Định (Bottom Status Bar)
+- Cố định bằng `TopBottomPanel::bottom` (vẽ trước CentralPanel), luôn luôn hiển thị ở mọi kích thước cửa sổ >= 760x520:
+  - Cánh trái: Bảng hướng dẫn phím tắt súc tích (`Ctrl+F: Tìm kiếm | Esc: Xoá / Đóng | Lên/Xuống: Chọn | Space: Tạm dừng`) với cỡ chữ >= 12px, tương phản >= 5.3:1.
+  - Cánh phải: Thời gian cập nhật gần nhất (`Cập nhật: vừa xong` hoặc `X s trước`), Tổng số tiến trình thu thập (`Tổng số: 120 tiến trình`), huy hiệu `[DEMO]` và `[ĐANG TẠM DỪNG]` khi kích hoạt.
 
 ---
 

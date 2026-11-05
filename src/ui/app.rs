@@ -14,11 +14,11 @@ use crate::model::{ActionCommand, ScoredProcess, SystemSnapshot};
 use crate::ui::actions::ActionRunner;
 use crate::ui::charts::{self, SparklineConfig};
 use crate::ui::palette::{
-    pressure_indicator, COLOR_ACCENT_OK, COLOR_BG_CARD_CULPRIT, COLOR_BG_CARD_SMOOTH, COLOR_BORDER,
-    COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_DESTRUCTIVE_TEXT, COLOR_FOREGROUND,
-    COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING, FONT_SIZE_BODY,
-    FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY, RADIUS_LG,
-    RADIUS_MD, RADIUS_SM,
+    pressure_indicator, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_CULPRIT, COLOR_BG_CARD_SMOOTH,
+    COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_DESTRUCTIVE_TEXT,
+    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING,
+    FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY,
+    RADIUS_LG, RADIUS_MD, RADIUS_SM,
 };
 use crate::ui::state::{
     format_bottleneck_explanation, format_bps, format_percent, SortColumn, ViewState,
@@ -83,36 +83,47 @@ impl eframe::App for SlowSpotApp {
         // 3. Request a reactive repaint fallback (1 second cadence, avoids 60 FPS busy loop)
         ui.ctx().request_repaint_after(Duration::from_millis(1000));
 
-        // 4. Render Main Dashboard Layout
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.add_space(2.0);
+        // 4. Fixed Bottom Status Bar: Rendered before CentralPanel, always visible at all window sizes >= 760x520
+        egui::Panel::bottom("slowspot_bottom_status_bar")
+            .frame(
+                egui::Frame::new()
+                    .fill(COLOR_CARD)
+                    .inner_margin(Margin::symmetric(12, 6))
+                    .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE)),
+            )
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                self.render_bottom_status_bar(ui, now);
+            });
 
-            // Header Banner (Title, Demo, Status Pill, Mini Chips, Pause Button)
-            self.render_header_banner(ui, now);
-            ui.add_space(8.0);
+        // 5. Central Dashboard Content with uniform 12px outer margin
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(COLOR_BG)
+                    .inner_margin(Margin::same(12)),
+            )
+            .show(ui, |ui| {
+                // Ephemeral Toast Notifications (if any)
+                self.render_toast_and_status(ui, now);
 
-            // Top Culprit Hero Card / Smooth Status Banner
-            self.render_top_culprit_card(ui, now);
-            ui.add_space(8.0);
+                // Header Banner (Title, Demo, Status Pill, Mini Chips, Pause Button)
+                self.render_header_banner(ui, now);
+                ui.add_space(6.0);
 
-            // Real-time Sparklines (CPU, RAM, Disk)
-            self.render_sparklines(ui);
-            ui.add_space(8.0);
+                // Top Culprit Hero Card / Smooth Status Banner
+                self.render_top_culprit_card(ui, now);
+                ui.add_space(6.0);
 
-            // Process Table & Selected Process Action Bar
-            self.render_process_table(ui, now);
-            ui.add_space(8.0);
+                // Real-time Sparklines (CPU, RAM, Disk)
+                self.render_sparklines(ui);
+                ui.add_space(6.0);
 
-            // Ephemeral Toast Notifications
-            self.render_toast_and_status(ui, now);
-            ui.add_space(4.0);
+                // Process Table (Takes remaining vertical space, internal vertical scroll only)
+                self.render_process_table(ui, now);
+            });
 
-            // Bottom Status Bar (Keyboard Shortcuts, Last Update, Total Procs)
-            self.render_bottom_status_bar(ui, now);
-        });
-
-        // 5. Modal confirmation dialog for forced kill
+        // 6. Modal confirmation dialog for forced kill
         self.render_confirm_kill_dialog(ui, now);
     }
 }
@@ -160,8 +171,8 @@ impl SlowSpotApp {
     fn render_header_banner(&mut self, ui: &mut egui::Ui, now: Instant) {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
-            .corner_radius(RADIUS_LG)
-            .inner_margin(Margin::symmetric(14, 10))
+            .corner_radius(RADIUS_MD)
+            .inner_margin(Margin::symmetric(12, 6))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         card_frame.show(ui, |ui| {
@@ -349,13 +360,16 @@ impl SlowSpotApp {
 
         let card_frame = egui::Frame::new()
             .fill(fill_color)
-            .corner_radius(RADIUS_LG)
-            .inner_margin(Margin::same(12))
+            .corner_radius(RADIUS_MD)
+            .inner_margin(Margin::symmetric(12, 8))
             .stroke(Stroke::new(1.0, border_color));
 
         card_frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             if let Some(target) = culprit {
+                let pid = target.record.pid;
+                let killable = target.killable;
+
                 // Row 1: Header (Title, Severity Badge, Protected Badge, Culprit Score)
                 ui.horizontal(|ui| {
                     ui.label(
@@ -368,7 +382,7 @@ impl SlowSpotApp {
                     widgets::severity_badge(ui, target.severity);
                     ui.add_space(4.0);
 
-                    if !target.killable {
+                    if !killable {
                         widgets::process_kind_badge(ui, crate::model::ProcessKind::SystemCritical);
                     }
 
@@ -386,22 +400,22 @@ impl SlowSpotApp {
                     });
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(3.0);
 
                 // Row 2: Culprit Process Name & Bottleneck Explanation
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(&target.record.name)
                             .color(COLOR_FOREGROUND)
-                            .size(FONT_SIZE_HEADING)
+                            .size(FONT_SIZE_SUBHEADING)
                             .strong(),
                     );
                     ui.label(
-                        RichText::new(format!("(PID {})", target.record.pid))
+                        RichText::new(format!("(PID {})", pid))
                             .color(COLOR_MUTED_FOREGROUND)
                             .size(FONT_SIZE_BODY),
                     );
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     let explanation = format_bottleneck_explanation(&target);
                     ui.label(
                         RichText::new(format!("— {explanation}"))
@@ -410,36 +424,32 @@ impl SlowSpotApp {
                     );
                 });
 
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
                 // Row 3: Action Buttons with strict visual hierarchy
-                ui.horizontal(|ui| {
-                    let pid = target.record.pid;
-                    let killable = target.killable;
+                let can_kill = self.state.can_force_kill(pid, now);
+                let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
 
-                    // 1. Primary Button: Graceful Close ("Đóng an toàn")
+                ui.horizontal(|ui| {
+                    // 1. Primary Button: Graceful Close ("Đóng an toàn") - Solid fill, NO fake focus outline
+                    let (close_fill, close_color, close_stroke) = if killable {
+                        (COLOR_INFO, COLOR_BG, Stroke::NONE)
+                    } else {
+                        (
+                            COLOR_MUTED,
+                            COLOR_MUTED_FOREGROUND,
+                            Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+                        )
+                    };
+
                     let close_btn = egui::Button::new(
                         RichText::new(strings::BTN_GRACEFUL_CLOSE)
-                            .color(if killable {
-                                COLOR_FOREGROUND
-                            } else {
-                                COLOR_MUTED_FOREGROUND
-                            })
+                            .color(close_color)
+                            .size(FONT_SIZE_BODY)
                             .strong(),
                     )
-                    .fill(if killable {
-                        COLOR_INFO.gamma_multiply(0.3)
-                    } else {
-                        COLOR_MUTED
-                    })
-                    .stroke(Stroke::new(
-                        1.0,
-                        if killable {
-                            COLOR_INFO
-                        } else {
-                            COLOR_BORDER_SUBTLE
-                        },
-                    ));
+                    .fill(close_fill)
+                    .stroke(close_stroke);
 
                     let close_resp = ui.add_enabled(killable, close_btn);
                     if close_resp.hovered() && killable {
@@ -451,42 +461,40 @@ impl SlowSpotApp {
                         let res = self.actions.run(ActionCommand::GracefulClose(pid), &target);
                         self.state.record_graceful_close(pid, now);
                         match res {
-                            Ok(msg) => self.state.add_toast(msg, false, now, Duration::from_secs(4)),
-                            Err(err) => self.state.add_toast(err, true, now, Duration::from_secs(5)),
+                            Ok(msg) => {
+                                self.state
+                                    .add_toast(msg, false, now, Duration::from_secs(4))
+                            }
+                            Err(err) => {
+                                self.state.add_toast(err, true, now, Duration::from_secs(5))
+                            }
                         }
                     }
 
-                    // 2. Danger Button: Force Kill ("Bắt buộc tắt") - red only when eligible
-                    let can_kill = self.state.can_force_kill(pid, now);
-                    let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
-
+                    // 2. Danger Button: Force Kill ("Bắt buộc tắt") - Solid red only when eligible
                     let kill_text = match wait_rem {
                         Some(s) if s > 0 => format!("{} ({}s)", strings::BTN_FORCE_KILL, s),
                         _ => strings::BTN_FORCE_KILL.to_string(),
                     };
 
+                    let (kill_fill, kill_color, kill_stroke) = if can_kill && killable {
+                        (COLOR_DESTRUCTIVE, COLOR_FOREGROUND, Stroke::NONE)
+                    } else {
+                        (
+                            COLOR_MUTED,
+                            COLOR_MUTED_FOREGROUND,
+                            Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+                        )
+                    };
+
                     let kill_btn = egui::Button::new(
                         RichText::new(kill_text)
-                            .color(if can_kill {
-                                COLOR_FOREGROUND
-                            } else {
-                                COLOR_MUTED_FOREGROUND
-                            })
+                            .color(kill_color)
+                            .size(FONT_SIZE_BODY)
                             .strong(),
                     )
-                    .fill(if can_kill {
-                        COLOR_DESTRUCTIVE
-                    } else {
-                        COLOR_MUTED
-                    })
-                    .stroke(Stroke::new(
-                        1.0,
-                        if can_kill {
-                            COLOR_DESTRUCTIVE
-                        } else {
-                            COLOR_BORDER_SUBTLE
-                        },
-                    ));
+                    .fill(kill_fill)
+                    .stroke(kill_stroke);
 
                     let kill_resp = ui.add_enabled(killable && can_kill, kill_btn);
                     if kill_resp.hovered() && can_kill {
@@ -503,9 +511,7 @@ impl SlowSpotApp {
                             );
                             kill_resp.on_hover_text(tip);
                         } else {
-                            kill_resp.on_hover_text(
-                                "Hãy thử Đóng an toàn trước. Nút Bắt buộc tắt sẽ kích hoạt sau 5 giây nếu tiến trình không thoát."
-                            );
+                            kill_resp.on_hover_text(strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT);
                         }
                     } else if kill_resp.clicked() {
                         self.confirm_kill = Some(target.clone());
@@ -513,7 +519,9 @@ impl SlowSpotApp {
 
                     // 3. Secondary Button: Open File Location ("Mở thư mục")
                     let open_btn = egui::Button::new(
-                        RichText::new(strings::BTN_OPEN_LOCATION).color(COLOR_MUTED_FOREGROUND),
+                        RichText::new(strings::BTN_OPEN_LOCATION)
+                            .color(COLOR_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
                     )
                     .fill(COLOR_CARD)
                     .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
@@ -525,14 +533,21 @@ impl SlowSpotApp {
                     if open_resp.clicked() {
                         let res = self.actions.run(ActionCommand::OpenLocation(pid), &target);
                         match res {
-                            Ok(msg) => self.state.add_toast(msg, false, now, Duration::from_secs(4)),
-                            Err(err) => self.state.add_toast(err, true, now, Duration::from_secs(5)),
+                            Ok(msg) => {
+                                self.state
+                                    .add_toast(msg, false, now, Duration::from_secs(4))
+                            }
+                            Err(err) => {
+                                self.state.add_toast(err, true, now, Duration::from_secs(5))
+                            }
                         }
                     }
 
                     // 4. Secondary Button: Ignore Culprit ("Bỏ qua thủ phạm này")
                     let ignore_btn = egui::Button::new(
-                        RichText::new(strings::BTN_IGNORE_CULPRIT).color(COLOR_MUTED_FOREGROUND),
+                        RichText::new(strings::BTN_IGNORE_CULPRIT)
+                            .color(COLOR_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
                     )
                     .fill(COLOR_CARD)
                     .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
@@ -552,24 +567,48 @@ impl SlowSpotApp {
                         );
                     }
                 });
-            } else {
-                // Healthy PC State with crisp checkmark
-                ui.horizontal(|ui| {
-                    widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 18.0);
-                    ui.add_space(6.0);
-                    ui.vertical(|ui| {
+
+                // Row 4: Immediate inline notice when Force Kill is disabled (Requirement 6)
+                if !can_kill || !killable {
+                    let reason_text = if !killable {
+                        strings::NOTICE_SYSTEM_PROTECTED.to_string()
+                    } else if let Some(s) = wait_rem {
+                        format!(
+                            "{} {s} {}",
+                            strings::NOTICE_WAIT_GRACEFUL_PREFIX,
+                            strings::NOTICE_WAIT_GRACEFUL_SUFFIX
+                        )
+                    } else {
+                        strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT.to_string()
+                    };
+
+                    ui.add_space(3.0);
+                    ui.horizontal(|ui| {
+                        widgets::draw_warning_icon(ui, COLOR_MUTED_FOREGROUND, 11.0);
+                        ui.add_space(2.0);
                         ui.label(
-                            RichText::new(strings::HERO_NO_CULPRIT)
-                                .color(COLOR_ACCENT_OK)
-                                .size(FONT_SIZE_SUBHEADING)
-                                .strong(),
-                        );
-                        ui.label(
-                            RichText::new(strings::HERO_NO_CULPRIT_SUB)
+                            RichText::new(reason_text)
                                 .color(COLOR_MUTED_FOREGROUND)
                                 .size(FONT_SIZE_CAPTION),
                         );
                     });
+                }
+            } else {
+                // Healthy PC State - compact 1-line layout
+                ui.horizontal(|ui| {
+                    widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 16.0);
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(strings::HERO_NO_CULPRIT)
+                            .color(COLOR_ACCENT_OK)
+                            .size(FONT_SIZE_SUBHEADING)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(format!("— {}", strings::HERO_NO_CULPRIT_SUB))
+                            .color(COLOR_MUTED_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
+                    );
                 });
             }
         });
@@ -597,12 +636,10 @@ impl SlowSpotApp {
 
         let max_disk = disk_values.iter().fold(10.0f32, |m, &v| m.max(v * 1.2));
 
-        // Distribute available width evenly minus spacing
+        // Distribute available width evenly minus spacing using guaranteed non-overflow calculation
         let available_width = ui.available_width();
         let spacing = ui.spacing().item_spacing.x;
-        let total_spacing = spacing * 2.0;
-        let card_width = ((available_width - total_spacing) / 3.0).floor().max(1.0);
-        let last_card_width = (available_width - card_width * 2.0 - total_spacing).max(1.0);
+        let [w0, w1, w2] = charts::calculate_sparkline_widths(available_width, spacing);
 
         ui.horizontal(|ui| {
             charts::sparkline(
@@ -614,7 +651,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_DESTRUCTIVE,
-                    size: Vec2::new(card_width, 82.0),
+                    size: Vec2::new(w0, 72.0),
                 },
                 &cpu_values,
             );
@@ -627,7 +664,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_WARNING,
-                    size: Vec2::new(card_width, 82.0),
+                    size: Vec2::new(w1, 72.0),
                 },
                 &ram_values,
             );
@@ -640,7 +677,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: max_disk,
                     line_color: COLOR_ACCENT_OK,
-                    size: Vec2::new(last_card_width, 82.0),
+                    size: Vec2::new(w2, 72.0),
                 },
                 &disk_values,
             );
@@ -652,8 +689,8 @@ impl SlowSpotApp {
     fn render_process_table(&mut self, ui: &mut egui::Ui, now: Instant) {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
-            .corner_radius(RADIUS_LG)
-            .inner_margin(Margin::same(12))
+            .corner_radius(RADIUS_MD)
+            .inner_margin(Margin::symmetric(12, 8))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         card_frame.show(ui, |ui| {
@@ -847,37 +884,51 @@ impl SlowSpotApp {
                 .line_segment([sep_rect.left_top(), sep_rect.right_top()], sep_stroke);
             ui.add_space(2.0);
 
-            // Table Rows (Top 20 Filtered)
-            let top_20: Vec<ScoredProcess> = self
-                .state
-                .filtered_processes()
-                .into_iter()
-                .take(20)
-                .cloned()
-                .collect();
-
-            if top_20.is_empty() {
-                table::render_empty_table_state(ui);
+            // Reserve room for bottom action bar if process is selected, and let rows scroll inside
+            let bottom_bar_height = if self.state.selected_pid.is_some() {
+                40.0
             } else {
-                for (idx, proc) in top_20.iter().enumerate() {
-                    let pid = proc.record.pid;
-                    let is_selected = self.state.selected_pid == Some(pid);
+                0.0
+            };
+            let available_h = (ui.available_height() - bottom_bar_height).max(60.0);
 
-                    let row_resp = table::render_process_row(ui, proc, &layout, is_selected, idx);
-                    if row_resp.clicked() {
-                        if is_selected {
-                            self.state.select_pid(None);
-                        } else {
-                            self.state.select_pid(Some(pid));
+            egui::ScrollArea::vertical()
+                .max_height(available_h)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let top_20: Vec<ScoredProcess> = self
+                        .state
+                        .filtered_processes()
+                        .into_iter()
+                        .take(20)
+                        .cloned()
+                        .collect();
+
+                    if top_20.is_empty() {
+                        table::render_empty_table_state(ui);
+                    } else {
+                        for (idx, proc) in top_20.iter().enumerate() {
+                            let pid = proc.record.pid;
+                            let is_selected = self.state.selected_pid == Some(pid);
+
+                            let row_resp =
+                                table::render_process_row(ui, proc, &layout, is_selected, idx);
+                            if row_resp.clicked() {
+                                if is_selected {
+                                    self.state.select_pid(None);
+                                } else {
+                                    self.state.select_pid(Some(pid));
+                                }
+                            }
                         }
                     }
-                }
+                });
+
+            // Selected Process Action Bar (anchored at bottom of table card)
+            if self.state.selected_pid.is_some() {
+                ui.add_space(4.0);
+                self.render_selected_action_bar(ui, now);
             }
-
-            ui.add_space(4.0);
-
-            // Selected Process Action Bar
-            self.render_selected_action_bar(ui, now);
         });
     }
 
@@ -968,7 +1019,7 @@ impl SlowSpotApp {
                             }
                         }
 
-                        // Force kill button
+                        // Force kill button (Danger)
                         let can_kill = self.state.can_force_kill(pid, now);
                         let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
                         let kill_text = match wait_rem {
@@ -976,29 +1027,24 @@ impl SlowSpotApp {
                             _ => strings::BTN_FORCE_KILL.to_string(),
                         };
 
+                        let (kill_fill, kill_color, kill_stroke) = if can_kill && killable {
+                            (COLOR_DESTRUCTIVE, COLOR_FOREGROUND, Stroke::NONE)
+                        } else {
+                            (
+                                COLOR_MUTED,
+                                COLOR_MUTED_FOREGROUND,
+                                Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+                            )
+                        };
+
                         let kill_btn = egui::Button::new(
                             RichText::new(kill_text)
-                                .color(if can_kill {
-                                    COLOR_FOREGROUND
-                                } else {
-                                    COLOR_MUTED_FOREGROUND
-                                })
+                                .color(kill_color)
                                 .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         )
-                        .fill(if can_kill {
-                            COLOR_DESTRUCTIVE
-                        } else {
-                            COLOR_MUTED
-                        })
-                        .stroke(Stroke::new(
-                            1.0,
-                            if can_kill {
-                                COLOR_DESTRUCTIVE
-                            } else {
-                                COLOR_BORDER_SUBTLE
-                            },
-                        ));
+                        .fill(kill_fill)
+                        .stroke(kill_stroke);
 
                         let kill_resp = ui.add_enabled(killable && can_kill, kill_btn);
                         if kill_resp.hovered() && can_kill {
@@ -1016,36 +1062,31 @@ impl SlowSpotApp {
                                 kill_resp.on_hover_text(tip);
                             } else {
                                 kill_resp
-                                    .on_hover_text("Gửi lệnh Đóng an toàn trước khi Bắt buộc tắt.");
+                                    .on_hover_text(strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT);
                             }
                         } else if kill_resp.clicked() {
                             self.confirm_kill = Some(target.clone());
                         }
 
-                        // Graceful close button
+                        // Graceful close button (Primary)
+                        let (close_fill, close_color, close_stroke) = if killable {
+                            (COLOR_INFO, COLOR_BG, Stroke::NONE)
+                        } else {
+                            (
+                                COLOR_MUTED,
+                                COLOR_MUTED_FOREGROUND,
+                                Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+                            )
+                        };
+
                         let close_btn = egui::Button::new(
                             RichText::new(strings::BTN_GRACEFUL_CLOSE)
-                                .color(if killable {
-                                    COLOR_FOREGROUND
-                                } else {
-                                    COLOR_MUTED_FOREGROUND
-                                })
+                                .color(close_color)
                                 .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         )
-                        .fill(if killable {
-                            COLOR_INFO.gamma_multiply(0.3)
-                        } else {
-                            COLOR_MUTED
-                        })
-                        .stroke(Stroke::new(
-                            1.0,
-                            if killable {
-                                COLOR_INFO
-                            } else {
-                                COLOR_BORDER_SUBTLE
-                            },
-                        ));
+                        .fill(close_fill)
+                        .stroke(close_stroke);
 
                         let close_resp = ui.add_enabled(killable, close_btn);
                         if close_resp.hovered() && killable {
@@ -1115,34 +1156,15 @@ impl SlowSpotApp {
     /// and total process count.
     fn render_bottom_status_bar(&self, ui: &mut egui::Ui, now: Instant) {
         ui.horizontal(|ui| {
-            // Left: Keyboard Shortcut Cheatsheet
+            // Left: Keyboard Shortcut Cheatsheet (>= 12px, solid high-contrast muted foreground)
             ui.label(
                 RichText::new(strings::STATUS_HINT_SHORTCUTS)
-                    .color(COLOR_MUTED_FOREGROUND.gamma_multiply(0.8))
-                    .size(FONT_SIZE_TINY),
+                    .color(COLOR_MUTED_FOREGROUND)
+                    .size(FONT_SIZE_CAPTION),
             );
 
-            // Right: Metadata (Last Updated, Process Count)
+            // Right: Metadata (Last Updated, Process Count, Demo / Paused badges)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let proc_count = self.state.display_processes.len();
-                let count_str = format!(
-                    "{} {} {}",
-                    strings::STATUS_TOTAL_PROCESSES,
-                    proc_count,
-                    strings::STATUS_PROCESS_UNIT
-                );
-                ui.label(
-                    RichText::new(count_str)
-                        .color(COLOR_MUTED_FOREGROUND)
-                        .size(FONT_SIZE_TINY),
-                );
-
-                ui.label(
-                    RichText::new("|")
-                        .color(COLOR_BORDER_SUBTLE)
-                        .size(FONT_SIZE_TINY),
-                );
-
                 let update_str = match self.last_update_instant {
                     Some(t) => {
                         let elapsed_secs = now.duration_since(t).as_secs();
@@ -1158,8 +1180,55 @@ impl SlowSpotApp {
                 ui.label(
                     RichText::new(update_str)
                         .color(COLOR_MUTED_FOREGROUND)
-                        .size(FONT_SIZE_TINY),
+                        .size(FONT_SIZE_CAPTION),
                 );
+
+                ui.label(
+                    RichText::new("|")
+                        .color(COLOR_BORDER_SUBTLE)
+                        .size(FONT_SIZE_CAPTION),
+                );
+
+                let proc_count = self.state.display_processes.len();
+                let count_str = format!(
+                    "{} {} {}",
+                    strings::STATUS_TOTAL_PROCESSES,
+                    proc_count,
+                    strings::STATUS_PROCESS_UNIT
+                );
+                ui.label(
+                    RichText::new(count_str)
+                        .color(COLOR_MUTED_FOREGROUND)
+                        .size(FONT_SIZE_CAPTION),
+                );
+
+                if self.state.is_paused {
+                    ui.label(
+                        RichText::new("|")
+                            .color(COLOR_BORDER_SUBTLE)
+                            .size(FONT_SIZE_CAPTION),
+                    );
+                    ui.label(
+                        RichText::new(format!("[{}]", strings::BADGE_PAUSED))
+                            .color(COLOR_WARNING)
+                            .size(FONT_SIZE_CAPTION)
+                            .strong(),
+                    );
+                }
+
+                if self.demo {
+                    ui.label(
+                        RichText::new("|")
+                            .color(COLOR_BORDER_SUBTLE)
+                            .size(FONT_SIZE_CAPTION),
+                    );
+                    ui.label(
+                        RichText::new(format!("[{}]", strings::BADGE_DEMO))
+                            .color(COLOR_WARNING)
+                            .size(FONT_SIZE_CAPTION)
+                            .strong(),
+                    );
+                }
             });
         });
     }
@@ -1243,6 +1312,48 @@ mod tests {
     use eframe::egui::{self, Color32};
 
     /// Pure computation layout verification across supported window dimensions.
+    #[test]
+    fn test_panel_and_central_margin_layout() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        for &(win_w, win_h) in &[(1000.0, 680.0), (760.0, 520.0)] {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(win_w, win_h),
+                )),
+                ..Default::default()
+            };
+
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                // Bottom panel
+                egui::Panel::bottom("test_status_bar")
+                    .frame(
+                        egui::Frame::new()
+                            .fill(COLOR_CARD)
+                            .inner_margin(Margin::symmetric(12, 6)),
+                    )
+                    .show(ui, |ui| {
+                        ui.label("Status Bar");
+                    });
+
+                // Central panel with uniform 12px outer margin
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().inner_margin(Margin::same(12)))
+                    .show(ui, |ui| {
+                        let avail_w = ui.available_width();
+                        // 12px margin on left and right means avail_w == win_w - 24.0
+                        assert!(
+                            (avail_w - (win_w - 24.0)).abs() < 1.0,
+                            "Available width {avail_w} must equal window width minus 24px margins"
+                        );
+                    });
+            });
+            output.textures_delta.clear();
+        }
+    }
+
     #[test]
     fn test_sparkline_layout_distribution_no_overflow() {
         let test_widths = [736.0, 976.0, 1200.0, 1896.0];

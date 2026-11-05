@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Pos2, Response, Sense, Shape, Stroke, StrokeKi
 
 use crate::ui::palette::{
     COLOR_BORDER_SUBTLE, COLOR_FOREGROUND, COLOR_MUTED, COLOR_MUTED_FOREGROUND, FONT_SIZE_BODY,
-    FONT_SIZE_CAPTION, FONT_SIZE_TINY, RADIUS_MD,
+    FONT_SIZE_CAPTION, RADIUS_MD,
 };
 use crate::ui::strings;
 
@@ -28,6 +28,18 @@ pub struct SparklineConfig<'a> {
     pub line_color: Color32,
     /// Allocated widget size.
     pub size: Vec2,
+}
+
+/// Computes equal widths for 3 resource sparkline cards distributed across available width.
+///
+/// Ensures the sum of the 3 cards plus spacing between them precisely equals `available_width`
+/// without causing rounding overflows or fractional pixel jitter.
+pub fn calculate_sparkline_widths(available_width: f32, spacing: f32) -> [f32; 3] {
+    let total_spacing = spacing * 2.0;
+    let usable_width = (available_width - total_spacing).max(0.0);
+    let card_width = (usable_width / 3.0).floor().max(1.0);
+    let last_card_width = (usable_width - card_width * 2.0).max(1.0);
+    [card_width, card_width, last_card_width]
 }
 
 /// Paints an area sparkline graph using `egui::Painter`.
@@ -60,7 +72,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         COLOR_MUTED_FOREGROUND,
     );
 
-    // Peak metric in header
+    // Peak metric in header (>= 12px caption, solid high-contrast muted foreground)
     let peak_val = values.iter().fold(0.0f32, |acc, &v| acc.max(v));
     let peak_str = format!(
         "{} {:.1}{}",
@@ -68,14 +80,14 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         peak_val,
         cfg.unit
     );
-    let title_offset_x = rect.left() + 105.0;
-    if rect.width() > 220.0 {
+    let title_offset_x = rect.left() + 95.0;
+    if rect.width() > 200.0 {
         painter.text(
             Pos2::new(title_offset_x, header_y),
             egui::Align2::LEFT_TOP,
             peak_str,
-            egui::FontId::proportional(FONT_SIZE_TINY),
-            COLOR_MUTED_FOREGROUND.gamma_multiply(0.85),
+            egui::FontId::proportional(FONT_SIZE_CAPTION),
+            COLOR_MUTED_FOREGROUND,
         );
     }
 
@@ -116,21 +128,21 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16)),
     );
 
-    // 4. Time axis captions ("-60s" … "nay")
-    let time_y = rect.bottom() - 4.0;
+    // 4. Time axis captions ("-60s" … "nay") (>= 12px caption, solid high-contrast muted foreground)
+    let time_y = rect.bottom() - 3.0;
     painter.text(
         Pos2::new(graph_left, time_y),
         egui::Align2::LEFT_BOTTOM,
         strings::SPARKLINE_TIME_START,
-        egui::FontId::proportional(FONT_SIZE_TINY),
-        COLOR_MUTED_FOREGROUND.gamma_multiply(0.7),
+        egui::FontId::proportional(FONT_SIZE_CAPTION),
+        COLOR_MUTED_FOREGROUND,
     );
     painter.text(
         Pos2::new(graph_right, time_y),
         egui::Align2::RIGHT_BOTTOM,
         strings::SPARKLINE_TIME_NOW,
-        egui::FontId::proportional(FONT_SIZE_TINY),
-        COLOR_MUTED_FOREGROUND.gamma_multiply(0.7),
+        egui::FontId::proportional(FONT_SIZE_CAPTION),
+        COLOR_MUTED_FOREGROUND,
     );
 
     // 5. Data Points, Area Shading, and Line
@@ -217,4 +229,37 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sparkline_three_card_widths_pure_layout() {
+        // Test standard and boundary widths (1000px, 760px, and inner widths with 12px outer margins)
+        for &available in &[1000.0, 976.0, 760.0, 736.0, 600.0, 500.0] {
+            let spacing = 8.0;
+            let [w0, w1, w2] = calculate_sparkline_widths(available, spacing);
+
+            // 1. Total width of 3 cards plus the 2 inter-card gaps must match available width exactly
+            let total = w0 + w1 + w2 + spacing * 2.0;
+            assert!(
+                (total - available).abs() < 0.001,
+                "Total width ({total}) must match available width ({available})"
+            );
+
+            // 2. All cards must have strictly positive width
+            assert!(w0 > 0.0 && w1 > 0.0 && w2 > 0.0);
+
+            // 3. First two cards must be identical
+            assert!((w0 - w1).abs() < 0.001);
+
+            // 4. Last card may differ by at most 2.0px due to floor rounding of integer division
+            assert!(
+                (w0 - w2).abs() <= 2.0,
+                "Card width divergence ({w0} vs {w2}) must not exceed 2.0px"
+            );
+        }
+    }
 }
