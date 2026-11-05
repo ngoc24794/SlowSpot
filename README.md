@@ -2,7 +2,6 @@
 
 [![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20(64--bit)-blue.svg)](https://microsoft.com)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-yellow.svg)](Cargo.toml)
 [![CRT](https://img.shields.io/badge/CRT-Static%20Linked%20(Zero%20DLL)-success.svg)](#tính-năng-nổi-bật)
 
 **SlowSpot** là ứng dụng desktop Windows độc lập (standalone portable) siêu nhẹ viết bằng Rust, giúp người dùng giải quyết tức thì câu hỏi khi máy tính bị đơ hoặc giật lag: **"Tiến trình nào đang thực sự làm chậm PC của tôi, và tôi nên xử lý thế nào?"**
@@ -224,5 +223,5 @@ SlowSpot/
 
 ## 📜 Giấy Phép Bản Quyền (License)
 
-- **Mã nguồn SlowSpot**: Được phát hành theo giấy phép kép [MIT](LICENSE) hoặc [Apache-2.0](LICENSE).
+- **Mã nguồn SlowSpot**: chưa chọn giấy phép (chờ chủ dự án quyết định).
 - **Phông chữ Noto Sans**: Được phân phối theo giấy phép mở [SIL Open Font License 1.1](assets/fonts/OFL.txt) (xem chi tiết tại `assets/fonts/OFL.txt`).

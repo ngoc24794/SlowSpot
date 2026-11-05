@@ -81,7 +81,7 @@ va chi ro thu pham lam cham may tinh (CPU, RAM, Disk I/O).
    - Driver card do hoa ho tro OpenGL 2.0 tro len.
 
 4. BAN QUYEN & GIAY PHEP:
-   - SlowSpot: MIT OR Apache-2.0 License.
+   - SlowSpot: license not yet decided by the project owner.
    - Font Noto Sans: SIL Open Font License 1.1 (xem file OFL.txt).
 "@
 Set-Content -Path $shortReadmePath -Value $shortReadmeContent -Encoding UTF8
