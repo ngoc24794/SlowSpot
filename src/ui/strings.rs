@@ -20,9 +20,19 @@ pub const RES_CPU: &str = "CPU Hệ thống";
 pub const RES_RAM: &str = "Bộ nhớ RAM";
 pub const RES_DISK: &str = "Tốc độ Đĩa";
 
+// Live Update & Pause Controls
+pub const BTN_PAUSE: &str = "Tạm dừng";
+pub const BTN_RESUME: &str = "Tiếp tục";
+pub const BADGE_PAUSED: &str = "ĐANG TẠM DỪNG";
+pub const TOOLTIP_PAUSE_BUTTON: &str = "Đóng băng hiển thị để dễ dàng xem và chọn (Phím Space)";
+pub const TOOLTIP_RESUME_BUTTON: &str =
+    "Tiếp tục cập nhật dữ liệu hiển thị thời gian thực (Phím Space)";
+
 // Top Culprit Hero Card
 pub const HERO_TITLE: &str = "THỦ PHẠM CHÍNH";
 pub const HERO_NO_CULPRIT: &str = "Máy đang chạy mượt, không có thủ phạm";
+pub const HERO_NO_CULPRIT_SUB: &str =
+    "Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.";
 pub const HERO_SCORE_LABEL: &str = "Điểm thủ phạm";
 pub const HERO_PROTECTED_BADGE: &str = "Bảo vệ";
 pub const HERO_REASON_PREFIX: &str = "Nguyên nhân:";
@@ -37,10 +47,13 @@ pub const BTN_IGNORE_CULPRIT: &str = "Bỏ qua thủ phạm này";
 pub const SPARKLINE_CPU_TITLE: &str = "CPU (60 giây)";
 pub const SPARKLINE_RAM_TITLE: &str = "RAM (60 giây)";
 pub const SPARKLINE_DISK_TITLE: &str = "Đĩa I/O (60 giây)";
+pub const SPARKLINE_PEAK_PREFIX: &str = "Đỉnh:";
+pub const SPARKLINE_TIME_START: &str = "-60s";
+pub const SPARKLINE_TIME_NOW: &str = "nay";
 
 // Process Table
 pub const TABLE_TITLE: &str = "Danh sách tiến trình (Top 20)";
-pub const SEARCH_PLACEHOLDER: &str = "Tìm kiếm theo tên hoặc PID...";
+pub const SEARCH_PLACEHOLDER: &str = "Tìm kiếm theo tên hoặc PID (Ctrl+F)...";
 pub const COL_NAME: &str = "Tên tiến trình";
 pub const COL_PID: &str = "PID";
 pub const COL_CPU: &str = "CPU %";
@@ -63,6 +76,19 @@ pub const SEVERITY_CULPRIT: &str = "Thủ phạm";
 // Selected Process Bar
 pub const SELECTED_PROCESS_LABEL: &str = "Đang chọn:";
 pub const SELECTED_NONE: &str = "Chọn một tiến trình trong bảng để thao tác";
+
+// Tooltips for Actions
+pub const TOOLTIP_SYSTEM_PROTECTED: &str = "Tiến trình hệ thống được bảo vệ và không thể can thiệp";
+pub const TOOLTIP_WAIT_GRACEFUL_PREFIX: &str = "Chờ";
+pub const TOOLTIP_WAIT_GRACEFUL_SUFFIX: &str = "giây sau khi gửi lệnh đóng an toàn để bắt buộc tắt";
+pub const TOOLTIP_EXE_PATH: &str = "Đường dẫn:";
+
+// Bottom Status Bar & Shortcuts
+pub const STATUS_HINT_SHORTCUTS: &str =
+    "Ctrl+F: Tìm kiếm | Esc: Xoá / Đóng | Lên/Xuống: Chọn | Space: Tạm dừng";
+pub const STATUS_UPDATED_PREFIX: &str = "Cập nhật:";
+pub const STATUS_TOTAL_PROCESSES: &str = "Tổng số:";
+pub const STATUS_PROCESS_UNIT: &str = "tiến trình";
 
 // Confirmation Dialog
 pub const CONFIRM_TITLE: &str = "Xác nhận bắt buộc tắt";
@@ -99,8 +125,14 @@ mod tests {
         RES_CPU,
         RES_RAM,
         RES_DISK,
+        BTN_PAUSE,
+        BTN_RESUME,
+        BADGE_PAUSED,
+        TOOLTIP_PAUSE_BUTTON,
+        TOOLTIP_RESUME_BUTTON,
         HERO_TITLE,
         HERO_NO_CULPRIT,
+        HERO_NO_CULPRIT_SUB,
         HERO_SCORE_LABEL,
         HERO_PROTECTED_BADGE,
         HERO_REASON_PREFIX,
@@ -111,6 +143,9 @@ mod tests {
         SPARKLINE_CPU_TITLE,
         SPARKLINE_RAM_TITLE,
         SPARKLINE_DISK_TITLE,
+        SPARKLINE_PEAK_PREFIX,
+        SPARKLINE_TIME_START,
+        SPARKLINE_TIME_NOW,
         TABLE_TITLE,
         SEARCH_PLACEHOLDER,
         COL_NAME,
@@ -129,6 +164,14 @@ mod tests {
         SEVERITY_CULPRIT,
         SELECTED_PROCESS_LABEL,
         SELECTED_NONE,
+        TOOLTIP_SYSTEM_PROTECTED,
+        TOOLTIP_WAIT_GRACEFUL_PREFIX,
+        TOOLTIP_WAIT_GRACEFUL_SUFFIX,
+        TOOLTIP_EXE_PATH,
+        STATUS_HINT_SHORTCUTS,
+        STATUS_UPDATED_PREFIX,
+        STATUS_TOTAL_PROCESSES,
+        STATUS_PROCESS_UNIT,
         CONFIRM_TITLE,
         CONFIRM_CANCEL,
         CONFIRM_PROCEED,
