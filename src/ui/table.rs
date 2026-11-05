@@ -147,12 +147,15 @@ pub fn render_flat_header(
     resp.clicked()
 }
 
-/// Renders a single data row with zebra background, hover highlight, and selected accent bar.
+/// Renders a single data row with zebra background, hover highlight, selected accent bar,
+/// and optional monitored episode indicator.
 pub fn render_process_row(
     ui: &mut egui::Ui,
     proc: &ScoredProcess,
     layout: &TableLayout,
     is_selected: bool,
+    is_watched: bool,
+    group_count: Option<usize>,
     row_idx: usize,
 ) -> Response {
     let row_height = 28.0;
@@ -166,11 +169,13 @@ pub fn render_process_row(
     let row_clip = ui.clip_rect().intersect(rect);
     let p = ui.painter().with_clip_rect(row_clip);
 
-    // 1. Background styling: selection > hover > zebra alternating
+    // 1. Background styling: selection > hover > group member highlight > zebra alternating
     let bg_color = if is_selected {
         COLOR_SELECTED_ROW
     } else if resp.hovered() {
         COLOR_MUTED
+    } else if group_count.is_some() {
+        COLOR_INFO.gamma_multiply(0.08)
     } else if row_idx % 2 == 1 {
         Color32::from_rgba_unmultiplied(255, 255, 255, 4)
     } else {
@@ -205,7 +210,7 @@ pub fn render_process_row(
     child_ui.set_clip_rect(row_clip);
     child_ui.spacing_mut().item_spacing.x = layout.spacing;
 
-    // Column 0: Name (with lock icon if SystemCritical)
+    // Column 0: Name (with lock icon if SystemCritical, tag if watched)
     render_cell(
         &mut child_ui,
         layout.name_width,
@@ -214,6 +219,12 @@ pub fn render_process_row(
             ui.spacing_mut().item_spacing.x = 5.0;
             if !proc.killable {
                 widgets::draw_lock_icon(ui, COLOR_PROTECTED);
+            }
+            if is_watched {
+                widgets::watched_tag(ui);
+            }
+            if let Some(count) = group_count {
+                widgets::group_tag(ui, count);
             }
 
             let label = egui::Label::new(

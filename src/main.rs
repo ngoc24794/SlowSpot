@@ -78,7 +78,11 @@ fn main() {
             (Box::new(SysinfoSource::new()), Box::new(RealActions))
         };
 
-        let cfg = AppConfig::default();
+        let mut cfg = AppConfig::default();
+        if options.demo {
+            // Accelerated watch retention for demo scenario lifecycle (Overloaded -> Cooling -> Recovered <= 60s)
+            cfg.watch_retention_secs = 25;
+        }
         let mut handle = slowspot::collector::spawn(source, cfg, on_snapshot);
 
         // Safely extract the receiving channel without prematurely stopping the collector

@@ -10,18 +10,22 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Margin, Pos2, RichText, Sense, Stroke, Vec2};
 
-use crate::model::{ActionCommand, ScoredProcess, SystemSnapshot};
+use crate::analyzer::{
+    format_breakdown_banner, format_pressure_badge_text, format_pressure_badge_tooltip,
+};
+use crate::model::{ActionCommand, Episode, PressureBreakdown, ScoredProcess, SystemSnapshot};
 use crate::ui::actions::ActionRunner;
 use crate::ui::charts::{self, SparklineConfig};
 use crate::ui::palette::{
-    pressure_indicator, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_CULPRIT, COLOR_BG_CARD_SMOOTH,
+    PressureShape, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_CULPRIT, COLOR_BG_CARD_SMOOTH,
     COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_DESTRUCTIVE_TEXT,
     COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING,
     FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY,
     RADIUS_LG, RADIUS_MD, RADIUS_SM,
 };
 use crate::ui::state::{
-    format_bottleneck_explanation, format_bps, format_percent, SortColumn, ViewState,
+    format_bottleneck_explanation, format_bps, format_bytes, format_episode_time_str,
+    format_percent, SortColumn, ViewState,
 };
 use crate::ui::strings;
 pub use crate::ui::table::{render_cell, TableLayout};
@@ -44,8 +48,9 @@ pub enum HeroBannerState {
     Culprit(ScoredProcess),
     /// System pressure is high (Strained or Overloaded) but no single culprit is identified.
     HighPressureNoCulprit {
-        title: &'static str,
-        subtitle: &'static str,
+        title: String,
+        subtitle: String,
+        group_culprit_name: Option<String>,
         color: egui::Color32,
     },
     /// System is healthy and smooth with no culprits.
@@ -60,21 +65,53 @@ pub enum HeroBannerState {
 pub fn evaluate_hero_banner_state(
     culprit: Option<&ScoredProcess>,
     pressure: crate::model::PressureState,
+    breakdown: Option<&PressureBreakdown>,
 ) -> HeroBannerState {
     if let Some(target) = culprit {
         HeroBannerState::Culprit(target.clone())
     } else {
         match pressure {
-            crate::model::PressureState::Overloaded => HeroBannerState::HighPressureNoCulprit {
-                title: strings::HERO_PRESSURE_OVERLOADED,
-                subtitle: strings::HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB,
-                color: COLOR_WARNING,
-            },
-            crate::model::PressureState::Strained => HeroBannerState::HighPressureNoCulprit {
-                title: strings::HERO_PRESSURE_STRAINED,
-                subtitle: strings::HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB,
-                color: COLOR_WARNING,
-            },
+            crate::model::PressureState::Overloaded | crate::model::PressureState::Strained => {
+                let color = COLOR_WARNING;
+
+                if let Some(bd) = breakdown {
+                    let subtitle = format_breakdown_banner(bd);
+                    if let Some(gc) = &bd.group_culprit {
+                        HeroBannerState::HighPressureNoCulprit {
+                            title: format!(
+                                "Nhóm thủ phạm: {} ({} tiến trình)",
+                                gc.name, gc.process_count
+                            ),
+                            subtitle,
+                            group_culprit_name: Some(gc.name.clone()),
+                            color,
+                        }
+                    } else {
+                        let title = if pressure == crate::model::PressureState::Overloaded {
+                            strings::HERO_PRESSURE_OVERLOADED.to_string()
+                        } else {
+                            strings::HERO_PRESSURE_STRAINED.to_string()
+                        };
+                        HeroBannerState::HighPressureNoCulprit {
+                            title,
+                            subtitle,
+                            group_culprit_name: None,
+                            color,
+                        }
+                    }
+                } else {
+                    HeroBannerState::HighPressureNoCulprit {
+                        title: if pressure == crate::model::PressureState::Overloaded {
+                            strings::HERO_PRESSURE_OVERLOADED.to_string()
+                        } else {
+                            strings::HERO_PRESSURE_STRAINED.to_string()
+                        },
+                        subtitle: strings::HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB.to_string(),
+                        group_culprit_name: None,
+                        color,
+                    }
+                }
+            }
             crate::model::PressureState::Smooth => HeroBannerState::SmoothHealthy {
                 title: strings::HERO_NO_CULPRIT,
                 subtitle: strings::HERO_NO_CULPRIT_SUB,
@@ -178,6 +215,10 @@ impl SlowSpotApp {
                 self.render_sparklines(ui);
                 ui.add_space(3.0);
 
+                // Watched Panel ("Đang theo dõi")
+                self.render_watched_panel(ui, now);
+                ui.add_space(3.0);
+
                 // Process Table (Takes remaining vertical space, internal vertical scroll only)
                 self.render_process_table(ui, now);
             });
@@ -268,9 +309,26 @@ impl SlowSpotApp {
                     });
                 }
 
-                // 3. System Pressure Status Pill with geometric shape + text (WCAG compliant)
-                let (status_text, status_shape, status_color) =
-                    pressure_indicator(self.state.latest_snapshot.as_ref().map(|s| s.pressure));
+                // 3. System Pressure Status Pill with resource naming and threshold tooltip
+                let snap_ref = self.state.latest_snapshot.as_ref();
+                let pressure = snap_ref
+                    .map(|s| s.pressure)
+                    .unwrap_or(crate::model::PressureState::Smooth);
+                let (status_shape, status_color) = match pressure {
+                    crate::model::PressureState::Overloaded => {
+                        (PressureShape::Octagon, COLOR_DESTRUCTIVE)
+                    }
+                    crate::model::PressureState::Strained => {
+                        (PressureShape::Triangle, COLOR_WARNING)
+                    }
+                    crate::model::PressureState::Smooth => (PressureShape::Circle, COLOR_ACCENT_OK),
+                };
+                let status_text = snap_ref
+                    .map(|s| format_pressure_badge_text(&s.totals, s.pressure))
+                    .unwrap_or_else(|| strings::PRESSURE_SMOOTH.to_string());
+                let tooltip_text = snap_ref
+                    .map(|s| format_pressure_badge_tooltip(&s.totals))
+                    .unwrap_or_default();
 
                 let pill_frame = egui::Frame::new()
                     .fill(status_color.gamma_multiply(0.18))
@@ -279,21 +337,26 @@ impl SlowSpotApp {
                     .stroke(Stroke::new(1.0, status_color.gamma_multiply(0.4)));
 
                 pill_frame.show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        widgets::draw_pressure_shape_indicator(
-                            ui,
-                            status_shape,
-                            status_color,
-                            10.0,
-                        );
-                        ui.add_space(2.0);
-                        ui.label(
-                            RichText::new(status_text)
-                                .color(status_color)
-                                .size(FONT_SIZE_CAPTION)
-                                .strong(),
-                        );
-                    });
+                    let resp = ui
+                        .horizontal(|ui| {
+                            widgets::draw_pressure_shape_indicator(
+                                ui,
+                                status_shape,
+                                status_color,
+                                10.0,
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new(status_text)
+                                    .color(status_color)
+                                    .size(FONT_SIZE_CAPTION)
+                                    .strong(),
+                            );
+                        })
+                        .response;
+                    if !tooltip_text.is_empty() {
+                        resp.on_hover_text(tooltip_text);
+                    }
                 });
 
                 // 4. Paused State Indicator
@@ -327,6 +390,38 @@ impl SlowSpotApp {
                                 .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         );
+                    });
+                }
+
+                // 6. Watched process count badge (when active watch count > 0)
+                let active_watch = self.state.actively_watched_count();
+                if active_watch > 0 {
+                    let watch_frame = egui::Frame::new()
+                        .fill(COLOR_WARNING.gamma_multiply(0.2))
+                        .corner_radius(RADIUS_MD)
+                        .inner_margin(Margin::symmetric(8, 4))
+                        .stroke(Stroke::new(1.0, COLOR_WARNING.gamma_multiply(0.6)));
+
+                    watch_frame.show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            widgets::draw_pressure_shape_indicator(
+                                ui,
+                                PressureShape::Circle,
+                                COLOR_WARNING,
+                                8.0,
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {}",
+                                    strings::BADGE_WATCHING_HEADER_PREFIX,
+                                    active_watch
+                                ))
+                                .color(COLOR_WARNING)
+                                .size(FONT_SIZE_CAPTION)
+                                .strong(),
+                            );
+                        });
                     });
                 }
 
@@ -422,8 +517,13 @@ impl SlowSpotApp {
             .as_ref()
             .map(|s| s.pressure)
             .unwrap_or(crate::model::PressureState::Smooth);
+        let breakdown = self
+            .state
+            .latest_snapshot
+            .as_ref()
+            .and_then(|s| s.breakdown.as_ref());
 
-        let banner_state = evaluate_hero_banner_state(culprit.as_ref(), pressure);
+        let banner_state = evaluate_hero_banner_state(culprit.as_ref(), pressure, breakdown);
 
         let (fill_color, border_color) = match &banner_state {
             HeroBannerState::Culprit(_) => {
@@ -681,6 +781,7 @@ impl SlowSpotApp {
                 HeroBannerState::HighPressureNoCulprit {
                     title,
                     subtitle,
+                    group_culprit_name,
                     color,
                 } => {
                     ui.horizontal(|ui| {
@@ -698,6 +799,45 @@ impl SlowSpotApp {
                                 .size(FONT_SIZE_CAPTION),
                         );
                     });
+
+                    if let Some(ref group_name) = group_culprit_name {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            let filter_btn = egui::Button::new(
+                                RichText::new("Lọc trong bảng")
+                                    .color(COLOR_FOREGROUND)
+                                    .size(FONT_SIZE_CAPTION),
+                            )
+                            .fill(COLOR_CARD)
+                            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                            if ui.add(filter_btn).clicked() {
+                                self.state.search_query = group_name.clone();
+                            }
+
+                            let ignore_btn = egui::Button::new(
+                                RichText::new("Bỏ qua nhóm này")
+                                    .color(COLOR_FOREGROUND)
+                                    .size(FONT_SIZE_CAPTION),
+                            )
+                            .fill(COLOR_CARD)
+                            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                            if ui.add(ignore_btn).clicked() {
+                                self.state.ignore_process(group_name);
+                                self.state.add_toast(
+                                    format!("{} '{}'", strings::MSG_IGNORED_SUCCESS, group_name),
+                                    false,
+                                    now,
+                                    Duration::from_secs(4),
+                                );
+                            }
+
+                            ui.label(
+                                RichText::new("Can thiệp từng tiến trình trong bảng bên dưới")
+                                    .color(COLOR_MUTED_FOREGROUND)
+                                    .size(FONT_SIZE_TINY),
+                            );
+                        });
+                    }
                 }
                 HeroBannerState::SmoothHealthy {
                     title,
@@ -791,6 +931,270 @@ impl SlowSpotApp {
                 },
                 &disk_values,
             );
+        });
+    }
+
+    /// Renders the compact "Đang theo dõi" panel above the process table.
+    fn render_watched_panel(&mut self, ui: &mut egui::Ui, now: Instant) {
+        let episodes: Vec<Episode> = self.state.watched_episodes().to_vec();
+        if episodes.is_empty() {
+            return;
+        }
+
+        let card_frame = egui::Frame::new()
+            .fill(COLOR_CARD)
+            .corner_radius(RADIUS_MD)
+            .inner_margin(Margin::symmetric(10, 6))
+            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+
+        card_frame.show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            // Header row
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(strings::WATCHED_PANEL_TITLE)
+                        .color(COLOR_FOREGROUND)
+                        .size(FONT_SIZE_SUBHEADING)
+                        .strong(),
+                );
+
+                let active_count = self.state.actively_watched_count();
+                let count_badge = egui::Frame::new()
+                    .fill(if active_count > 0 {
+                        COLOR_WARNING.gamma_multiply(0.2)
+                    } else {
+                        COLOR_MUTED
+                    })
+                    .corner_radius(RADIUS_SM)
+                    .inner_margin(Margin::symmetric(6, 1))
+                    .stroke(Stroke::new(
+                        1.0,
+                        if active_count > 0 {
+                            COLOR_WARNING.gamma_multiply(0.5)
+                        } else {
+                            COLOR_BORDER_SUBTLE
+                        },
+                    ));
+
+                count_badge.show(ui, |ui| {
+                    ui.label(
+                        RichText::new(format!("{}", episodes.len()))
+                            .color(if active_count > 0 {
+                                COLOR_WARNING
+                            } else {
+                                COLOR_MUTED_FOREGROUND
+                            })
+                            .size(FONT_SIZE_TINY)
+                            .strong(),
+                    );
+                });
+            });
+
+            ui.add_space(4.0);
+
+            // Display watched episodes
+            let max_panel_height = 130.0;
+            egui::ScrollArea::vertical()
+                .id_salt("watched_panel_scroll")
+                .max_height(max_panel_height)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    for ep in episodes {
+                        self.render_watched_row(ui, &ep, now);
+                    }
+                });
+        });
+    }
+
+    /// Renders an individual watched process row in the watched panel.
+    fn render_watched_row(&mut self, ui: &mut egui::Ui, ep: &Episode, now: Instant) {
+        let now_ms = self
+            .state
+            .latest_snapshot
+            .as_ref()
+            .map(|s| s.timestamp_ms)
+            .unwrap_or(0);
+        let row_frame = egui::Frame::new()
+            .fill(COLOR_BG)
+            .corner_radius(RADIUS_SM)
+            .inner_margin(Margin::symmetric(8, 4))
+            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+
+        row_frame.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                // 1. State badge with geometric icon and text
+                widgets::watched_state_badge(ui, ep.state, ep.cooldown_remaining_secs(now_ms, 120));
+                ui.add_space(4.0);
+
+                // 2. Name & PID (or group count)
+                if ep.is_group() {
+                    ui.label(
+                        RichText::new(format!("{} ×{}", ep.name, ep.process_count))
+                            .color(COLOR_FOREGROUND)
+                            .size(FONT_SIZE_BODY)
+                            .strong(),
+                    );
+                } else {
+                    ui.label(
+                        RichText::new(&ep.name)
+                            .color(COLOR_FOREGROUND)
+                            .size(FONT_SIZE_BODY)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(format!("({})", ep.pid))
+                            .color(COLOR_MUTED_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
+                    );
+                }
+
+                ui.add_space(6.0);
+
+                // 3. Time info: "Từ HH:MM:SS (đã MM:SS)"
+                ui.label(
+                    RichText::new(format_episode_time_str(ep))
+                        .color(COLOR_MUTED_FOREGROUND)
+                        .size(FONT_SIZE_CAPTION),
+                );
+
+                ui.add_space(6.0);
+
+                // 4. Peak stats: CPU / RAM / Disk
+                let peak_cpu_str = format!("Đỉnh CPU: {}", format_percent(ep.peak_cpu));
+                let peak_ram_str = format!("RAM: {}", format_bytes(ep.peak_ram_bytes));
+                let peak_disk_str = format!("Đĩa: {}", format_bps(ep.peak_disk_bps));
+
+                ui.label(
+                    RichText::new(format!("{peak_cpu_str} • {peak_ram_str} • {peak_disk_str}"))
+                        .color(COLOR_MUTED_FOREGROUND)
+                        .size(FONT_SIZE_CAPTION),
+                );
+
+                // 5. Mini sparkline of score history
+                ui.add_space(4.0);
+                widgets::mini_sparkline(ui, &ep.score_history, 48.0, 16.0);
+
+                // 6. Action button (right-aligned) respecting two-tier safety & per-process closing
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ep.is_group() {
+                        let filter_btn = egui::Button::new(
+                            RichText::new("Xem trong bảng")
+                                .color(COLOR_FOREGROUND)
+                                .size(FONT_SIZE_TINY),
+                        )
+                        .fill(COLOR_CARD)
+                        .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                        let resp = ui.add(filter_btn);
+                        if resp
+                            .on_hover_text("Can thiệp từng tiến trình trong bảng bên dưới")
+                            .clicked()
+                        {
+                            self.state.search_query = ep.name.clone();
+                        }
+                        return;
+                    }
+
+                    let active_proc =
+                        self.state.latest_snapshot.as_ref().and_then(|s| {
+                            s.processes.iter().find(|p| p.record.pid == ep.pid).cloned()
+                        });
+
+                    if let Some(target) = active_proc {
+                        let pid = target.record.pid;
+                        let killable = target.killable;
+
+                        if !killable {
+                            let prot_btn = egui::Button::new(
+                                RichText::new(strings::BTN_GRACEFUL_CLOSE)
+                                    .color(COLOR_MUTED_FOREGROUND)
+                                    .size(FONT_SIZE_TINY),
+                            )
+                            .fill(COLOR_MUTED)
+                            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                            let resp = ui.add_enabled(false, prot_btn);
+                            resp.on_hover_text(strings::TOOLTIP_SYSTEM_PROTECTED);
+                        } else {
+                            let can_kill = self.state.can_force_kill(pid, now);
+                            let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
+
+                            if can_kill {
+                                let kill_btn = egui::Button::new(
+                                    RichText::new(strings::BTN_FORCE_KILL)
+                                        .color(COLOR_FOREGROUND)
+                                        .size(FONT_SIZE_TINY)
+                                        .strong(),
+                                )
+                                .fill(COLOR_DESTRUCTIVE)
+                                .stroke(Stroke::NONE);
+
+                                let resp = ui.add(kill_btn);
+                                if resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+                                if resp.clicked() {
+                                    self.confirm_kill = Some(target.clone());
+                                }
+                            } else if let Some(s) = wait_rem {
+                                let wait_btn = egui::Button::new(
+                                    RichText::new(format!("{} ({}s)", strings::BTN_FORCE_KILL, s))
+                                        .color(COLOR_MUTED_FOREGROUND)
+                                        .size(FONT_SIZE_TINY),
+                                )
+                                .fill(COLOR_MUTED)
+                                .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                                let resp = ui.add_enabled(false, wait_btn);
+                                resp.on_hover_text(format!(
+                                    "{} {s} {}",
+                                    strings::TOOLTIP_WAIT_GRACEFUL_PREFIX,
+                                    strings::TOOLTIP_WAIT_GRACEFUL_SUFFIX
+                                ));
+                            } else {
+                                let close_btn = egui::Button::new(
+                                    RichText::new(strings::BTN_GRACEFUL_CLOSE)
+                                        .color(COLOR_BG)
+                                        .size(FONT_SIZE_TINY)
+                                        .strong(),
+                                )
+                                .fill(COLOR_INFO)
+                                .stroke(Stroke::NONE);
+
+                                let resp = ui.add(close_btn);
+                                if resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+                                if resp.clicked() {
+                                    let res = self
+                                        .actions
+                                        .run(ActionCommand::GracefulClose(pid), &target);
+                                    self.state.record_graceful_close(pid, now);
+                                    match res {
+                                        Ok(msg) => self.state.add_toast(
+                                            msg,
+                                            false,
+                                            now,
+                                            Duration::from_secs(4),
+                                        ),
+                                        Err(err) => self.state.add_toast(
+                                            err,
+                                            true,
+                                            now,
+                                            Duration::from_secs(5),
+                                        ),
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        ui.label(
+                            RichText::new("—")
+                                .color(COLOR_MUTED_FOREGROUND)
+                                .size(FONT_SIZE_CAPTION),
+                        );
+                    }
+                });
+            });
         });
     }
 
@@ -1035,36 +1439,37 @@ impl SlowSpotApp {
                     let scroll_clip = scroll_ui.clip_rect().intersect(body_clip);
                     scroll_ui.set_clip_rect(scroll_clip);
 
-                    let top_20: Vec<ScoredProcess> = self
-                        .state
-                        .filtered_processes()
-                        .into_iter()
-                        .take(20)
-                        .cloned()
-                        .collect();
+                    let table_procs: Vec<ScoredProcess> =
+                        self.state.table_processes().into_iter().cloned().collect();
 
-                    if top_20.is_empty() {
+                    let mut clicked_pid = None;
+
+                    if table_procs.is_empty() {
                         table::render_empty_table_state(scroll_ui);
                     } else {
-                        for (idx, proc) in top_20.iter().enumerate() {
+                        for (idx, proc) in table_procs.iter().enumerate() {
                             let pid = proc.record.pid;
                             let is_selected = self.state.selected_pid == Some(pid);
+                            let is_watched = self.state.is_watched_pid(pid);
+                            let group_count = self.state.is_group_culprit_member(&proc.record.name);
 
                             let row_resp = table::render_process_row(
                                 scroll_ui,
                                 proc,
                                 &layout,
                                 is_selected,
+                                is_watched,
+                                group_count,
                                 idx,
                             );
                             if row_resp.clicked() {
-                                if is_selected {
-                                    self.state.select_pid(None);
-                                } else {
-                                    self.state.select_pid(Some(pid));
-                                }
+                                clicked_pid = Some(if is_selected { None } else { Some(pid) });
                             }
                         }
+                    }
+
+                    if let Some(sel) = clicked_pid {
+                        self.state.select_pid(sel);
                     }
                 });
 
@@ -2026,24 +2431,25 @@ mod tests {
 
         // 1. Culprit present -> Always HeroBannerState::Culprit regardless of pressure
         assert_eq!(
-            evaluate_hero_banner_state(Some(&culprit), PressureState::Overloaded),
+            evaluate_hero_banner_state(Some(&culprit), PressureState::Overloaded, None),
             HeroBannerState::Culprit(culprit.clone())
         );
         assert_eq!(
-            evaluate_hero_banner_state(Some(&culprit), PressureState::Strained),
+            evaluate_hero_banner_state(Some(&culprit), PressureState::Strained, None),
             HeroBannerState::Culprit(culprit.clone())
         );
         assert_eq!(
-            evaluate_hero_banner_state(Some(&culprit), PressureState::Smooth),
+            evaluate_hero_banner_state(Some(&culprit), PressureState::Smooth, None),
             HeroBannerState::Culprit(culprit.clone())
         );
 
         // 2. No culprit + Overloaded -> HighPressureNoCulprit with warning color & Overloaded message
-        match evaluate_hero_banner_state(None, PressureState::Overloaded) {
+        match evaluate_hero_banner_state(None, PressureState::Overloaded, None) {
             HeroBannerState::HighPressureNoCulprit {
                 title,
                 subtitle,
                 color,
+                ..
             } => {
                 assert_eq!(title, strings::HERO_PRESSURE_OVERLOADED);
                 assert_eq!(subtitle, strings::HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB);
@@ -2053,11 +2459,12 @@ mod tests {
         }
 
         // 3. No culprit + Strained -> HighPressureNoCulprit with warning color & Strained message
-        match evaluate_hero_banner_state(None, PressureState::Strained) {
+        match evaluate_hero_banner_state(None, PressureState::Strained, None) {
             HeroBannerState::HighPressureNoCulprit {
                 title,
                 subtitle,
                 color,
+                ..
             } => {
                 assert_eq!(title, strings::HERO_PRESSURE_STRAINED);
                 assert_eq!(subtitle, strings::HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB);
@@ -2067,7 +2474,7 @@ mod tests {
         }
 
         // 4. No culprit + Smooth -> SmoothHealthy with green OK color
-        match evaluate_hero_banner_state(None, PressureState::Smooth) {
+        match evaluate_hero_banner_state(None, PressureState::Smooth, None) {
             HeroBannerState::SmoothHealthy {
                 title,
                 subtitle,
@@ -2109,6 +2516,8 @@ mod tests {
             },
             processes: vec![],
             pressure: PressureState::Overloaded,
+            watched: Vec::new(),
+            breakdown: None,
         };
         app.state.push_snapshot(snap, Instant::now());
 
@@ -2131,12 +2540,10 @@ mod tests {
             }
         }
 
-        // Header badge shows 'Quá tải'
+        // Header badge shows 'Quá tải [resource]' (Addendum 1)
         assert!(
-            rendered_texts
-                .iter()
-                .any(|t| t == strings::PRESSURE_OVERLOADED),
-            "Header badge must show Quá tải"
+            rendered_texts.iter().any(|t| t.starts_with("Quá tải")),
+            "Header badge must name overloaded resource(s)"
         );
 
         // Banner shows 'Hệ thống đang quá tải'
@@ -2349,5 +2756,155 @@ mod tests {
             "Must have verified rows when scrolled back to top"
         );
         out4.textures_delta.clear();
+    }
+
+    #[test]
+    fn test_group_culprit_banner_and_table_tag() {
+        let ctx = egui::Context::default();
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let mut app = SlowSpotApp {
+            rx,
+            actions: Box::new(crate::ui::DemoActions),
+            state: ViewState::new(),
+            demo: true,
+            confirm_kill: None,
+            last_update_instant: None,
+        };
+
+        // Create 3 rustc.exe processes (24%, 21%, 7% -> 52%)
+        let p1 = ScoredProcess {
+            record: crate::model::ProcessRecord {
+                pid: 101,
+                parent_pid: None,
+                name: "rustc.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 24.0,
+                memory_bytes: 1024 * 1024 * 500,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: crate::model::ProcessKind::UserApp,
+            score: 24.0,
+            severity: crate::model::Severity::Normal,
+            main_bottleneck: crate::model::Bottleneck::Cpu,
+            killable: true,
+        };
+        let p2 = ScoredProcess {
+            record: crate::model::ProcessRecord {
+                pid: 102,
+                parent_pid: None,
+                name: "rustc.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 21.0,
+                memory_bytes: 1024 * 1024 * 500,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: crate::model::ProcessKind::UserApp,
+            score: 21.0,
+            severity: crate::model::Severity::Normal,
+            main_bottleneck: crate::model::Bottleneck::Cpu,
+            killable: true,
+        };
+        let p3 = ScoredProcess {
+            record: crate::model::ProcessRecord {
+                pid: 103,
+                parent_pid: None,
+                name: "rustc.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 7.0,
+                memory_bytes: 1024 * 1024 * 500,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: crate::model::ProcessKind::UserApp,
+            score: 7.0,
+            severity: crate::model::Severity::Normal,
+            main_bottleneck: crate::model::Bottleneck::Cpu,
+            killable: true,
+        };
+
+        let group_share = crate::model::ProcessGroupShare {
+            name: "rustc.exe".to_string(),
+            process_count: 3,
+            total_metric: 52.0,
+            share_percent: 52.0,
+            pids: vec![101, 102, 103],
+        };
+
+        let bd = crate::model::PressureBreakdown {
+            resource: crate::model::OverloadedResource::Cpu,
+            system_value: 99.7,
+            resource_unit: "%",
+            top_groups: vec![group_share.clone()],
+            remainder_share_percent: 48.0,
+            group_culprit: Some(group_share),
+        };
+
+        let snap = SystemSnapshot {
+            timestamp_ms: 1000,
+            totals: crate::model::SystemTotals {
+                cpu_percent: 99.7,
+                memory_used_bytes: 8 * 1024 * 1024 * 1024,
+                memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bps: 0.0,
+            },
+            processes: vec![p1, p2, p3],
+            pressure: crate::model::PressureState::Overloaded,
+            watched: Vec::new(),
+            breakdown: Some(bd),
+        };
+
+        app.state.push_snapshot(snap, Instant::now());
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(1000.0, 680.0),
+            )),
+            ..Default::default()
+        };
+
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            app.render_ui(ui, Instant::now());
+        });
+
+        let mut rendered_texts = Vec::new();
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                rendered_texts.push(text_shape.galley.text().to_string());
+            }
+        }
+
+        // 1. Header pill names the overloaded resource: 'Quá tải CPU'
+        assert!(
+            rendered_texts.iter().any(|t| t == "Quá tải CPU"),
+            "Header status pill must be 'Quá tải CPU', got: {:?}",
+            rendered_texts
+        );
+
+        // 2. Banner names the group culprit
+        assert!(
+            rendered_texts
+                .iter()
+                .any(|t| t.contains("Nhóm thủ phạm: rustc.exe (3 tiến trình)")),
+            "Banner must name group culprit rustc.exe with 3 processes"
+        );
+
+        // 3. Banner subtitle shows specific resource breakdown
+        assert!(
+            rendered_texts
+                .iter()
+                .any(|t| t.contains("CPU đang 99.7% — rustc.exe (3 tiến trình) chiếm 52%")),
+            "Banner subtitle must show detailed breakdown string"
+        );
+
+        // 4. Table renders group member tags '×3'
+        assert!(
+            rendered_texts.iter().any(|t| t == "×3"),
+            "Table must render group badge '×3' for member rows"
+        );
+
+        output.textures_delta.clear();
     }
 }

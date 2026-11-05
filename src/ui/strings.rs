@@ -41,6 +41,19 @@ pub const HERO_SCORE_LABEL: &str = "Điểm thủ phạm";
 pub const HERO_PROTECTED_BADGE: &str = "Bảo vệ";
 pub const HERO_REASON_PREFIX: &str = "Nguyên nhân:";
 
+// Watched Processes Panel ("Đang theo dõi")
+pub const WATCHED_PANEL_TITLE: &str = "Đang theo dõi";
+pub const WATCHED_BADGE_OVERLOADED: &str = "Quá tải";
+pub const WATCHED_BADGE_COOLING_PREFIX: &str = "Hạ nhiệt (còn ";
+pub const WATCHED_BADGE_COOLING_SUFFIX: &str = "s)";
+pub const WATCHED_BADGE_EXITED: &str = "Đã thoát";
+pub const WATCHED_TIME_PREFIX: &str = "Từ ";
+pub const WATCHED_DURATION_PREFIX: &str = "(đã ";
+pub const WATCHED_DURATION_SUFFIX: &str = ")";
+pub const WATCHED_PEAK_PREFIX: &str = "Đỉnh:";
+pub const BADGE_WATCHING_HEADER_PREFIX: &str = "Theo dõi:";
+pub const BADGE_WATCHED_TAG: &str = "Theo dõi";
+
 // Action Buttons
 pub const BTN_GRACEFUL_CLOSE: &str = "Đóng an toàn";
 pub const BTN_FORCE_KILL: &str = "Bắt buộc tắt";
@@ -148,6 +161,17 @@ mod tests {
         HERO_SCORE_LABEL,
         HERO_PROTECTED_BADGE,
         HERO_REASON_PREFIX,
+        WATCHED_PANEL_TITLE,
+        WATCHED_BADGE_OVERLOADED,
+        WATCHED_BADGE_COOLING_PREFIX,
+        WATCHED_BADGE_COOLING_SUFFIX,
+        WATCHED_BADGE_EXITED,
+        WATCHED_TIME_PREFIX,
+        WATCHED_DURATION_PREFIX,
+        WATCHED_DURATION_SUFFIX,
+        WATCHED_PEAK_PREFIX,
+        BADGE_WATCHING_HEADER_PREFIX,
+        BADGE_WATCHED_TAG,
         BTN_GRACEFUL_CLOSE,
         BTN_FORCE_KILL,
         BTN_OPEN_LOCATION,

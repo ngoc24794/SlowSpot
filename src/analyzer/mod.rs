@@ -1,17 +1,25 @@
 //! Metrics analysis and culprit scoring engine.
 //!
 //! Evaluates collected process metrics, applies safety filters against critical
-//! Windows processes, calculates culprit scores, and detects sudden resource spikes.
+//! Windows processes, calculates culprit scores, detects sudden resource spikes,
+//! and tracks sustained overload episodes.
 
+pub mod breakdown;
 pub mod damping;
 pub mod safety;
 pub mod scoring;
+pub mod tracker;
 
 use std::collections::{HashMap, HashSet};
 
+pub use breakdown::{
+    compute_breakdown, format_breakdown_banner, format_pressure_badge_text,
+    format_pressure_badge_tooltip, primary_overloaded_resource,
+};
 pub use damping::Damping;
 pub use safety::{classify, is_killable};
 pub use scoring::{pressure_state, score_process, ScoreWeights};
+pub use tracker::OverloadTracker;
 
 use crate::model::{RawSnapshot, ScoredProcess, Severity, SystemSnapshot};
 
@@ -20,6 +28,7 @@ use crate::model::{RawSnapshot, ScoredProcess, Severity, SystemSnapshot};
 pub struct Analyzer {
     weights: ScoreWeights,
     damping: Damping,
+    tracker: OverloadTracker,
     prev_processes: HashMap<u32, crate::model::ProcessRecord>,
 }
 
@@ -35,6 +44,7 @@ impl Analyzer {
         Self {
             weights,
             damping: Damping::new(damping_window),
+            tracker: OverloadTracker::new(tracker::DEFAULT_RETENTION_SECS, damping_window),
             prev_processes: HashMap::new(),
         }
     }
@@ -44,16 +54,34 @@ impl Analyzer {
         &self.weights
     }
 
+    /// Accessor for overload tracker.
+    pub fn tracker(&self) -> &OverloadTracker {
+        &self.tracker
+    }
+
+    /// Mutable accessor for overload tracker.
+    pub fn tracker_mut(&mut self) -> &mut OverloadTracker {
+        &mut self.tracker
+    }
+
+    /// Configures watch retention cooldown duration in seconds.
+    pub fn with_retention(mut self, retention_secs: u64) -> Self {
+        self.tracker.set_retention_secs(retention_secs);
+        self
+    }
+
     /// Transforms a [`RawSnapshot`] into a fully analyzed [`SystemSnapshot`].
     ///
     /// Pipeline steps:
     /// 1. Excludes PID 0 (System Idle Process) and current application PID.
     /// 2. Classifies process kind (UserApp, BackgroundService, SystemCritical).
     /// 3. Computes culprit score and bottleneck against current metrics and previous cycle.
-    /// 4. Applies rolling window damping average per PID.
-    /// 5. Derives severity level and killability.
-    /// 6. Sorts processes descending by smoothed culprit score.
-    /// 7. Computes overall system pressure state.
+    /// 4. Records candidate sample in overload tracker for accurate episode back-dating.
+    /// 5. Applies rolling window damping average per PID.
+    /// 6. Derives severity level and killability.
+    /// 7. Sorts processes descending by smoothed culprit score.
+    /// 8. Updates overload episode lifecycle.
+    /// 9. Computes overall system pressure state.
     pub fn analyze(&mut self, raw: RawSnapshot) -> SystemSnapshot {
         let own_pid = std::process::id();
         let pressure = scoring::pressure_state(&raw.totals);
@@ -72,6 +100,10 @@ impl Analyzer {
             let prev_rec = self.prev_processes.get(&rec.pid);
             let (raw_score, bottleneck) =
                 scoring::score_process(&rec, prev_rec, &raw.totals, &self.weights);
+
+            self.tracker
+                .record_sample(rec.pid, &rec.name, raw.timestamp_ms, raw_score);
+
             let smoothed_score = self.damping.smooth(rec.pid, raw_score);
             let kind = safety::classify(&rec.name);
             let killable = safety::is_killable(kind);
@@ -100,11 +132,23 @@ impl Analyzer {
                 .then_with(|| a.record.pid.cmp(&b.record.pid))
         });
 
+        let raw_records: Vec<_> = scored_processes.iter().map(|s| s.record.clone()).collect();
+        let breakdown = breakdown::compute_breakdown(&raw_records, &raw.totals, pressure);
+
+        // Update monitored overload episodes (including group episodes if group culprit exists)
+        let watched = self.tracker.update_with_breakdown(
+            raw.timestamp_ms,
+            &scored_processes,
+            breakdown.as_ref(),
+        );
+
         SystemSnapshot {
             timestamp_ms: raw.timestamp_ms,
             totals: raw.totals,
             pressure,
             processes: scored_processes,
+            watched,
+            breakdown,
         }
     }
 }

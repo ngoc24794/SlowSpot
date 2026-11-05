@@ -59,6 +59,154 @@ pub enum ProcessKind {
     SystemCritical,
 }
 
+/// Sustained lifecycle state of an overloaded process episode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EpisodeState {
+    /// Actively exceeding overload threshold (score >= 40.0).
+    Overloaded,
+    /// Dropped below threshold, currently in cooling period.
+    Cooling,
+    /// Cooldown expired peacefully without re-overloading.
+    Recovered,
+    /// Process terminated or exited while being watched.
+    Exited,
+}
+
+/// Key identifying a watched process across PID reuse.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProcessKey {
+    /// Process identifier (0 for group episodes).
+    pub pid: u32,
+    /// Process executable name.
+    pub name: String,
+}
+
+impl ProcessKey {
+    /// Creates a new `ProcessKey` for an individual process.
+    pub fn new(pid: u32, name: impl Into<String>) -> Self {
+        Self {
+            pid,
+            name: name.into(),
+        }
+    }
+
+    /// Creates a new `ProcessKey` for a process group.
+    pub fn group(name: impl Into<String>) -> Self {
+        Self {
+            pid: 0,
+            name: name.into().to_lowercase(),
+        }
+    }
+
+    /// Returns whether this key identifies a group episode.
+    pub fn is_group(&self) -> bool {
+        self.pid == 0
+    }
+}
+
+/// Historical and active record of a sustained process overload episode.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Episode {
+    /// Process identifier (0 for group episodes).
+    pub pid: u32,
+    /// Process executable name (e.g., "chrome.exe").
+    pub name: String,
+    /// Number of processes represented in this episode (1 for individual, > 1 for group).
+    pub process_count: usize,
+    /// Timestamp in Unix epoch milliseconds when overload began (back-dated to first damping tick).
+    pub started_at: u64,
+    /// Highest smoothed culprit score reached during this episode.
+    pub peak_score: f32,
+    /// Highest CPU utilization observed during this episode (0.0 to 100.0).
+    pub peak_cpu: f32,
+    /// Highest memory footprint observed during this episode in bytes.
+    pub peak_ram_bytes: u64,
+    /// Highest disk throughput observed during this episode in bytes per second.
+    pub peak_disk_bps: f64,
+    /// Accumulated duration spent in active overload in seconds.
+    pub overloaded_seconds: u64,
+    /// Timestamp in milliseconds of the latest tick in active overload.
+    pub last_overloaded_at: u64,
+    /// Current lifecycle state of this episode.
+    pub state: EpisodeState,
+    /// Process classification kind.
+    pub kind: ProcessKind,
+    /// Whether this process can be safely terminated.
+    pub killable: bool,
+    /// Rolling recent culprit score history for mini sparkline visualization.
+    pub score_history: Vec<f32>,
+}
+
+impl Episode {
+    /// Key representing this episode's process or group.
+    pub fn key(&self) -> ProcessKey {
+        if self.process_count > 1 || self.pid == 0 {
+            ProcessKey::group(&self.name)
+        } else {
+            ProcessKey::new(self.pid, &self.name)
+        }
+    }
+
+    /// Returns whether this episode represents a group of processes.
+    pub fn is_group(&self) -> bool {
+        self.process_count > 1 || self.pid == 0
+    }
+
+    /// Remaining cooling retention in seconds, or 0 if expired or not in cooling.
+    pub fn remaining_cooling_secs(&self, now_ms: u64, retention_secs: u64) -> u64 {
+        if self.state != EpisodeState::Cooling {
+            return 0;
+        }
+        let expire_at = self.last_overloaded_at + retention_secs * 1000;
+        expire_at.saturating_sub(now_ms) / 1000
+    }
+
+    /// Helper alias for remaining cooling retention seconds.
+    pub fn cooldown_remaining_secs(&self, now_ms: u64, retention_secs: u64) -> u64 {
+        self.remaining_cooling_secs(now_ms, retention_secs)
+    }
+}
+
+/// Hardware resource experiencing elevated utilization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OverloadedResource {
+    Cpu,
+    Memory,
+    Disk,
+}
+
+/// Aggregated metrics for a group of processes sharing the same executable name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProcessGroupShare {
+    /// Executable image name.
+    pub name: String,
+    /// Count of running process instances in this group.
+    pub process_count: usize,
+    /// Total consumption of the overloaded resource.
+    pub total_metric: f64,
+    /// Percentage share of the system total (0.0 to 100.0).
+    pub share_percent: f32,
+    /// PIDs belonging to this group.
+    pub pids: Vec<u32>,
+}
+
+/// System-wide breakdown of resource consumption when pressure is elevated.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PressureBreakdown {
+    /// Primary resource experiencing stress.
+    pub resource: OverloadedResource,
+    /// System-wide value of the overloaded resource.
+    pub system_value: f64,
+    /// Unit string ("%", " MB/s").
+    pub resource_unit: &'static str,
+    /// Top process groups by consumption (up to 3).
+    pub top_groups: Vec<ProcessGroupShare>,
+    /// Unattributed remainder percentage ("Hệ thống/khác").
+    pub remainder_share_percent: f32,
+    /// Group culprit if a single group accounts for >= 40% of the overloaded resource.
+    pub group_culprit: Option<ProcessGroupShare>,
+}
+
 /// Culprit severity ranking for a scored process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -135,6 +283,10 @@ pub struct SystemSnapshot {
     pub pressure: PressureState,
     /// Process list sorted by smoothed culprit score descending.
     pub processes: Vec<ScoredProcess>,
+    /// Currently watched process episodes (active, cooling, and recently finished).
+    pub watched: Vec<Episode>,
+    /// Resource consumption breakdown when system pressure is elevated.
+    pub breakdown: Option<PressureBreakdown>,
 }
 
 /// User action requested from the UI to be executed by the platform layer.

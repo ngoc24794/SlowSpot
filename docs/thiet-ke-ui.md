@@ -195,3 +195,35 @@ Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Wind
 ```
 - Độ rộng tối thiểu: `760px` x `520px` không bao giờ bị vỡ khung hay xuất hiện thanh cuộn ngang ngoài ý muốn.
 - Các cột bảng được co giãn thông minh, cột tên tiến trình chiếm toàn bộ không gian còn lại và tự động cắt bằng dấu ba chấm `…` nếu quá dài.
+
+
+---
+
+## 9. Thiết kế Giao diện Giám sát Đợt Quá tải & Nhóm Thủ phạm
+
+### 9.1. Khung "Đang theo dõi" (Watched Panel)
+- **Vị trí**: Đặt compact ngay phía trên bảng tiến trình.
+- **Trạng thái rỗng**: Khi không có tiến trình nào được theo dõi, panel tự động thu gọn hoàn toàn (chiều cao = 0) để nhường toàn bộ diện tích cho bảng tiến trình, đảm bảo giao diện luôn hiển thị >= 20 dòng ở kích thước chuẩn.
+- **Thẻ dòng tiến trình theo dõi**:
+  - Huy hiệu trạng thái kết hợp hình học và văn bản (chuẩn WCAG AA):
+    - `Quá tải` (Octagon đỏ): Đang vượt ngưỡng quá tải.
+    - `Hạ nhiệt (còn Xs)` (Circle vàng): Đang trong giai đoạn làm mát 120s kèm đếm lùi thời gian.
+    - `Phục hồi` (Circle xanh lá): Đã qua giai đoạn làm mát an toàn.
+    - `Đã thoát` (Diamond xám): Tiến trình đã dừng hoạt động.
+  - Tên tiến trình, PID (hoặc nhãn `rustc.exe ×3` nếu là nhóm tiến trình).
+  - Thời gian: "Từ HH:MM:SS (đã MM:SS)".
+  - Thống kê đỉnh điểm: "Đỉnh CPU: 88.0% • RAM: 1.2 GB • Đĩa: 45.0 MB/s".
+  - Mini Sparkline: Biểu đồ xu hướng điểm số/tỷ trọng trong đợt quá tải.
+  - Nút hành động nhanh: Tuân thủ an toàn 2 cấp độ ("Đóng an toàn" hoặc "Bắt buộc tắt"). Đối với nhóm tiến trình, cung cấp nút "Xem trong bảng" để can thiệp từng tiến trình riêng rẽ.
+
+### 9.2. Huy hiệu Áp lực Hệ thống & Tooltip Chi tiết
+- **Huy hiệu Header**: Minh bạch tài nguyên bị quá tải: "Quá tải CPU", "Quá tải RAM", "Quá tải đĩa" hoặc kết hợp "Quá tải CPU + RAM".
+- **Tooltip so sánh ngưỡng**: Khi rê chuột lên huy hiệu trạng thái, hiển thị giá trị thực tế đo được so với ngưỡng cấu hình:
+  `CPU: 99.7% (ngưỡng 90%) | RAM: 72.0% (ngưỡng 95%) | Đĩa: 12.0 MB/s (ngưỡng 50 MB/s)`.
+- **Huy hiệu đếm số lượng theo dõi**: Khi có tiến trình đang được theo dõi (> 0), hiển thị pill màu vàng cam `Theo dõi: N` trên thanh tiêu đề để người dùng nhận biết ngay cả khi bảng bị cuộn xuống.
+
+### 9.3. Trình bày Nhóm Thủ phạm (Group Culprit Presentation)
+- **Hero Card**: Khi áp lực cao nhưng không có một tiến trình đơn lẻ áp đảo, hệ thống hiển thị thẻ Nhóm thủ phạm:
+  - Tiêu đề: `Nhóm thủ phạm: rustc.exe (3 tiến trình)`
+  - Diễn giải: `CPU đang 99.7% — rustc.exe (3 tiến trình) chiếm 52%, chrome.exe (4) 8%, còn lại 40% từ hệ thống/tiến trình khác`
+- **Bảng tiến trình**: Gắn nhãn nhóm nhỏ `×3` bên cạnh tên tiến trình thành viên và làm nổi bật nền hàng bằng dải màu xanh nhẹ để người dùng dễ nhận diện trực quan.
