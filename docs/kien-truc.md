@@ -157,16 +157,15 @@ Dự án được phân rã thành 6 module nội bộ theo chuẩn Rust idiom:
 
 ### 3.2. Thuật toán Tính điểm Thủ phạm (`Culprit Score`)
 
-Mục tiêu của thuật toán là phản ánh chính xác cảm nhận giật lag của người dùng thực tế. Nghẽn ổ đĩa (Disk 100%) hoặc cạn kiệt RAM (gây tráo đổi trang đĩa - paging thrashing) gây đứng máy nặng nề hơn rất nhiều so với việc CPU ở mức 80% nhưng đĩa và RAM vẫn nhàn rỗi.
+Mục tiêu của thuật toán là phản ánh chính xác cảm nhận giật lag của người dùng thực tế. Trong thực tế, chỉ cần **một tài nguyên bị bão hòa** (như nghẽn ổ đĩa 100% hoặc CPU 95%) là đã đủ để làm chậm hoặc đơ máy tính, không cần phải đợi cả 3 tài nguyên (CPU, Disk, RAM) cùng nghẽn. Do đó, thuật toán áp dụng mô hình kết hợp **Tài nguyên Chi phối (Dominant Resource)**: 70% điểm số đến từ tài nguyên bị căng thẳng nặng nhất, kết hợp 30% từ tổng tải trọng số chung:
 
-Điểm thủ phạm $S \in [0, 100]$ của một tiến trình được tính như sau:
-
-$$S = \min\left(100, \; w_{\text{cpu}} \cdot f_{\text{cpu}}(C) + w_{\text{disk}} \cdot f_{\text{disk}}(D) + w_{\text{ram}} \cdot f_{\text{ram}}(M) + B_{\text{spike}}\right)$$
+$$S = \min\left(100, \; 0.7 \cdot \max(f_{\text{cpu}}, f_{\text{disk}}, f_{\text{ram}}) + 0.3 \cdot (w_{\text{cpu}} \cdot f_{\text{cpu}} + w_{\text{disk}} \cdot f_{\text{disk}} + w_{\text{ram}} \cdot f_{\text{ram}}) + B_{\text{spike}}\right)$$
 
 #### Trọng số mặc định:
 - $w_{\text{cpu}} = 0.40$ (Tỷ trọng CPU: 40%)
 - $w_{\text{disk}} = 0.35$ (Tỷ trọng Đĩa I/O: 35% — Cổ chai nguy hiểm nhất với máy HDD / SATA SSD)
 - $w_{\text{ram}} = 0.25$ (Tỷ trọng RAM Pressure: 25%)
+- Tỷ trọng tài nguyên chi phối (`dominant_share`): $0.70$ (tỷ trọng tải trọng số chung là $0.30$)
 
 #### Các hàm chuẩn hóa thành phần:
 1. **Thành phần CPU ($f_{\text{cpu}}$)**:
@@ -333,8 +332,8 @@ Kế hoạch kiểm thử đảm bảo SlowSpot đạt chất lượng chuẩn s
 
 ### 7.1. Kiểm thử Đơn vị (Unit Tests)
 - **Kiểm thử Thuật toán `CulpritEngine`**:
-  - Test case: Truyền vào `ProcessMetric` với CPU 95%, Disk 0, RAM bình thường $\rightarrow$ Điểm phải $\ge 80$.
-  - Test case: Truyền vào `ProcessMetric` với CPU 15%, Disk 80 MB/s $\rightarrow$ Điểm phải $\ge 75$ (bắt đúng bệnh nghẽn ổ đĩa).
+  - Test case: Truyền vào `ProcessMetric` với CPU 95%, Disk 0, RAM bình thường $\rightarrow$ Điểm phải $\ge 70$ (đạt ngưỡng Culprit).
+  - Test case: Truyền vào `ProcessMetric` với CPU 15%, Disk 80 MB/s $\rightarrow$ Điểm phải $\ge 75$ và cổ chai chính là Disk (bắt đúng bệnh nghẽn ổ đĩa).
   - Test case: Tiến trình nhàn rỗi (CPU 0.2%, Disk 0) $\rightarrow$ Điểm phải $\le 5$.
 - **Kiểm thử Bộ lọc `SafetyFilter`**:
   - Test case: Danh sách tiến trình chứa `csrss.exe`, `lsass.exe` $\rightarrow$ Kết quả hàm `is_killable()` bắt buộc trả về `false`.
