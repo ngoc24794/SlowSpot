@@ -99,8 +99,13 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
     2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện ở trạng thái vô hiệu hoá).
     3. **Nút Phụ (Secondary)**: `Mở thư mục` và `Bỏ qua thủ phạm này` (Dạng viền tối giản).
   - Dòng 4 (Hiển thị ngay lý do vô hiệu hoá): Khi `Bắt buộc tắt` bị vô hiệu, lập tức hiển thị dòng chú thích nhỏ kèm biểu tượng cảnh báo ngay dưới nhóm nút (ví dụ `Bắt buộc tắt sẽ khả dụng nếu ứng dụng không đóng sau 5 giây` hoặc `Tiến trình hệ thống được bảo vệ — không thể tắt`), không bắt người dùng phải hover chuột mới biết lý do.
-- **Khi máy chạy mượt (No Culprit)**:
-  - Hiển thị 1 dòng duy nhất siêu gọn: Biểu tượng dấu kiểm tra ✔ xanh lá, nhãn `Máy đang chạy mượt mà` và phụ chú `— Không có tiến trình nào làm chậm PC`.
+- **Khi không có thủ phạm duy nhất (No Single Culprit)**:
+  - **Trường hợp máy mượt mà (`PressureState::Smooth`)**:
+    - Hiển thị 1 dòng duy nhất siêu gọn: Biểu tượng dấu kiểm tra ✔ xanh lá (`COLOR_ACCENT_OK`), nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú `— Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.`
+  - **Trường hợp hệ thống chịu tải cao hoặc quá tải (`PressureState::Strained` / `Overloaded`)**:
+    - Để triệt tiêu hoàn toàn mâu thuẫn trạng thái (State Inconsistency — huy hiệu trên thanh đỉnh báo "Quá tải" nhưng banner lại báo "Máy chạy mượt"), banner lập tức kích hoạt chế độ cảnh báo đồng bộ với màu vàng hổ phách (`COLOR_WARNING`).
+    - Biểu tượng tam giác cảnh báo ▲ màu vàng, tiêu đề `Hệ thống đang quá tải` (hoặc `Hệ thống đang chịu tải cao`), đi kèm thông điệp phụ rõ ràng: `— Chưa xác định được một thủ phạm rõ ràng, nhiều tiến trình cùng chiếm tài nguyên.`
+    - Tuyệt đối không hiển thị thông điệp "mượt" khi áp lực tài nguyên đang ở mức cao.
 
 ### 5.3. Biểu đồ Sparkline Thời gian Thực (Real-time Sparklines)
 - Gồm 3 biểu đồ đồng thời theo dõi lịch sử 60 giây của **CPU**, **RAM** và **Tốc độ Đĩa I/O**.
@@ -113,7 +118,11 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 
 ### 5.4. Bảng Tiến Trình Tương Tác (Process Table)
 - **Tiêu đề cột phẳng (Flat Headers)**: Tiêu đề chữ hoa nhỏ tinh tế (~20px), khi rê chuột chuyển sang biểu tượng bàn tay (`PointingHand`). Mũi tên sắp xếp vẽ sắc nét trực tiếp bằng Painter. Đường phân cách 1px đặt ngay dưới tiêu đề cột, triệt tiêu khoảng trống thừa.
-- **Vùng cuộn nội bộ & Cắt xén bảo vệ (ScrollArea & Strict Clipping)**: Toàn bộ bảng tiến trình cuộn dọc bên trong và áp dụng cơ chế giao cắt vùng vẽ (`ui.clip_rect().intersect(ui.max_rect())`) cho toàn bộ thẻ Card, từng hàng và từng ô dữ liệu. Tuyệt đối không có nội dung nào vẽ tràn ra ngoài thẻ hay đè lên thanh trạng thái đáy.
+- **Cấu trúc Vùng cuộn & Cắt xén Nghiêm ngặt (Strict Viewport & Child UI Clipping)**:
+  - Thanh tìm kiếm và hàng tiêu đề cột cố định (`Flat Headers`) nằm hoàn toàn bên ngoài vùng cuộn, luôn hiển thị bên trên thân bảng.
+  - Phần thân bảng được phân bổ một vùng hình chữ nhật chính xác (`table_body_rect`) tạo thành một child UI (`body_ui`) với đường cắt xén nghiêm ngặt `body_clip = ui.clip_rect().intersect(table_body_rect)`.
+  - Thành phần `ScrollArea::vertical().id_salt("process_table_scroll")` được nhúng hoàn toàn bên trong child UI này.
+  - Toàn bộ ô dữ liệu (`render_cell`) và bề mặt hàng bảng áp dụng cơ chế giao cắt `ui.clip_rect().intersect(...)`, đảm bảo khi cuộn lên đỉnh hay cuộn xuống đáy, tuyệt đối không một dòng chữ hay đồ hoạ tiến trình nào có thể vẽ đè lên tiêu đề cột, thanh tìm kiếm, các biểu đồ sparklines, banner đỉnh phía trên, hoặc thanh trạng thái đáy.
 - **Mật độ hiển thị cao & Chiều cao hàng ~28px**: Mỗi hàng có chiều cao chuẩn 28px với khoảng cách đệm `item_spacing.y = 0.0px`, đảm bảo hiển thị đồng thời >= 12 hàng ở kích thước 1000x680 và >= 8 hàng ở kích thước tối thiểu 760x520.
 - **Cột Loại tiến trình (Giảm nhiễu thị giác)**: Tiến trình ứng dụng thông thường (`UserApp`) được hiển thị bằng chữ màu xám mờ (`COLOR_MUTED_FOREGROUND`), không có khung viền dạng nút bấm để tránh nhiễu và không gây hiểu lầm là nút bấm được. Chỉ tiến trình dịch vụ nền (`BackgroundService`) và tiến trình hệ thống cốt lõi (`SystemCritical` kèm ổ khoá 🔒) mới hiển thị dạng huy hiệu.
 - **Hiệu ứng chọn hàng (Selection State)**: Hàng đang chọn đổi nền sang tông xanh thẫm và có thanh nhấn màu xanh dương (`COLOR_INFO`) dày 3px ở cạnh trái.
