@@ -1,7 +1,8 @@
 //! Culprit scoring engine and system pressure calculation.
 //!
-//! Implements the scoring equations specified in `docs/kien-truc.md` Section 3.2:
-//! - Weighted combination of CPU, Disk I/O, and Memory pressure.
+//! Implements the dominant-resource scoring equations specified in `docs/kien-truc.md` Section 3.2:
+//! - Dominant-resource model: 70% share from highest saturated resource component,
+//!   combined with 30% share from the weighted load across CPU, Disk, and Memory.
 //! - Non-linear CPU scaling with a 5% baseline floor and 1.2 exponent.
 //! - Disk I/O saturation threshold based on standard HDD / SATA SSD speeds (50 MB/s).
 //! - Memory pressure active only under elevated system-wide RAM consumption (> 80%).
@@ -47,6 +48,8 @@ pub struct ScoreWeights {
     pub ram: f32,
     /// Flat penalty points awarded on sudden spikes (default 15.0).
     pub spike_bonus: f32,
+    /// Share allocated to the single dominant saturated resource (default 0.70).
+    pub dominant_share: f32,
 }
 
 impl Default for ScoreWeights {
@@ -56,6 +59,7 @@ impl Default for ScoreWeights {
             disk: 0.35,
             ram: 0.25,
             spike_bonus: 15.0,
+            dominant_share: 0.70,
         }
     }
 }
@@ -133,6 +137,10 @@ pub fn calculate_spike_bonus(
 }
 
 /// Calculates the culprit score (0.0 to 100.0) and dominant bottleneck for a process.
+///
+/// Uses the dominant-resource formula:
+/// `S = min(100, dominant_share * max(f) + (1 - dominant_share) * weighted_sum + B_spike)`.
+/// `main_bottleneck` corresponds to the largest normalized component `f` (or `None` if `max(f) < 5.0`).
 pub fn score_process(
     rec: &ProcessRecord,
     prev_rec: Option<&ProcessRecord>,
@@ -148,28 +156,25 @@ pub fn score_process(
     );
     let spike = calculate_spike_bonus(rec, prev_rec, w.spike_bonus);
 
-    let c_contrib = w.cpu * f_cpu;
-    let d_contrib = w.disk * f_disk;
-    let m_contrib = w.ram * f_ram;
+    let max_f = f_cpu.max(f_disk).max(f_ram);
+    let weighted_sum = w.cpu * f_cpu + w.disk * f_disk + w.ram * f_ram;
+    let dominant_part = w.dominant_share * max_f;
+    let weighted_share = (1.0 - w.dominant_share).max(0.0);
+    let weighted_part = weighted_share * weighted_sum;
 
-    let raw_score = c_contrib + d_contrib + m_contrib + spike;
+    let raw_score = dominant_part + weighted_part + spike;
     let score = raw_score.clamp(0.0, 100.0);
 
-    // Identify primary bottleneck by largest non-zero weighted contribution
-    let mut max_val = 0.0f32;
-    let mut bottleneck = Bottleneck::None;
-
-    if c_contrib > max_val {
-        max_val = c_contrib;
-        bottleneck = Bottleneck::Cpu;
-    }
-    if d_contrib > max_val {
-        max_val = d_contrib;
-        bottleneck = Bottleneck::Disk;
-    }
-    if m_contrib > max_val {
-        bottleneck = Bottleneck::Memory;
-    }
+    // Dominant bottleneck is component with largest f; None if max_f < 5.0
+    let bottleneck = if max_f < 5.0 {
+        Bottleneck::None
+    } else if f_cpu >= f_disk && f_cpu >= f_ram {
+        Bottleneck::Cpu
+    } else if f_disk >= f_ram {
+        Bottleneck::Disk
+    } else {
+        Bottleneck::Memory
+    };
 
     (score, bottleneck)
 }
@@ -194,6 +199,7 @@ pub fn pressure_state(totals: &SystemTotals) -> PressureState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Severity;
 
     fn dummy_record(
         pid: u32,
@@ -239,14 +245,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_95_pure_formula_and_with_spike() {
+    fn test_cpu_95_dominant_resource_and_spike() {
         // CPU 95%, Disk 0, RAM normal
-        // Formula calculation per docs 3.2:
-        // f_cpu(95) = ((95 - 5) / 95)^1.2 * 100 = (90/95)^1.2 * 100 ~= 93.7237
-        // w_cpu * f_cpu = 0.40 * 93.7237 ~= 37.49
-        // Note: docs/kien-truc.md 7.1 mentions score >= 80, but mathematically w_cpu=0.40
-        // caps CPU contribution at 40.0 (or 55.0 with spike).
-        // Per task specification, we strictly implement the exact formula and verify actual output.
+        // f_cpu(95) = ((90/95)^1.2) * 100 ~= 93.7237
+        // dominant_share = 0.7 -> dominant_part = 0.7 * 93.7237 ~= 65.6066
+        // weighted_part = 0.3 * (0.40 * 93.7237) ~= 11.2468
+        // Total score ~= 76.85 (>= 70, Severity::Culprit)
         let rec = dummy_record(101, 95.0, 100 * 1024 * 1024, 0.0, 0.0);
         let totals = dummy_totals(95.0, 8, 16); // RAM 50%
         let weights = ScoreWeights::default();
@@ -255,8 +259,17 @@ mod tests {
         let (score_no_spike, bottleneck) = score_process(&rec, None, &totals, &weights);
         assert_eq!(bottleneck, Bottleneck::Cpu);
         assert!(
-            (score_no_spike - 37.49).abs() < 0.1,
-            "Expected score ~37.49 per formula, got {score_no_spike}"
+            score_no_spike >= 70.0,
+            "Expected score >= 70 for CPU 95%, got {score_no_spike}"
+        );
+        assert!(
+            (score_no_spike - 76.85).abs() < 0.2,
+            "Expected score ~76.85, got {score_no_spike}"
+        );
+        assert_eq!(
+            Severity::from_score(score_no_spike),
+            Severity::Culprit,
+            "Severity must be Culprit"
         );
 
         // 2. With spike bonus (surging from 0% to 95% CPU, delta = 95 > 40)
@@ -265,14 +278,20 @@ mod tests {
             score_process(&rec, Some(&prev), &totals, &weights);
         assert_eq!(bottleneck_spike, Bottleneck::Cpu);
         assert!(
-            (score_with_spike - 52.49).abs() < 0.1,
-            "Expected score with spike bonus ~52.49, got {score_with_spike}"
+            (score_with_spike - 91.85).abs() < 0.2,
+            "Expected score with spike bonus ~91.85, got {score_with_spike}"
         );
+        assert_eq!(Severity::from_score(score_with_spike), Severity::Culprit);
     }
 
     #[test]
     fn test_disk_heavy_case_bottleneck() {
         // CPU 15%, Disk 80 MB/s
+        // f_cpu(15) = ((10/95)^1.2) * 100 ~= 6.7766
+        // f_disk(80) = 100.0 (threshold 50 MB/s)
+        // max_f = 100.0 -> dominant_part = 0.7 * 100 = 70.0
+        // weighted_part = 0.3 * (0.40 * 6.7766 + 0.35 * 100) = 0.3 * 37.7106 ~= 11.3132
+        // Total score ~= 81.31 (>= 75, Bottleneck::Disk)
         let disk_bytes = 80.0 * BYTES_PER_MB;
         let rec = dummy_record(102, 15.0, 100 * 1024 * 1024, disk_bytes, 0.0);
         let totals = dummy_totals(20.0, 6, 16);
@@ -284,21 +303,51 @@ mod tests {
             Bottleneck::Disk,
             "Dominant bottleneck should be Disk"
         );
-
-        // f_disk(80 MB/s) = 100.0 -> w_disk * 100.0 = 35.0
-        // f_cpu(15%) = ((10 / 95)^1.2) * 100 ~= 6.78 -> w_cpu * 6.78 ~= 2.71
-        // Expected score ~= 37.71 without spike
         assert!(
-            (score - 37.71).abs() < 0.1,
-            "Expected score ~37.71, got {score}"
+            score >= 75.0,
+            "Expected score >= 75 for Disk 80 MB/s, got {score}"
         );
+        assert!(
+            (score - 81.31).abs() < 0.2,
+            "Expected score ~81.31, got {score}"
+        );
+        assert_eq!(Severity::from_score(score), Severity::Culprit);
 
         // With spike bonus from 0 disk to 80 MB/s (delta = 80 > 30)
         let prev = dummy_record(102, 15.0, 100 * 1024 * 1024, 0.0, 0.0);
         let (score_spike, _) = score_process(&rec, Some(&prev), &totals, &weights);
+        assert!(score_spike >= 75.0);
         assert!(
-            (score_spike - 52.71).abs() < 0.1,
-            "Expected score with spike ~52.71, got {score_spike}"
+            (score_spike - 96.31).abs() < 0.2,
+            "Expected score with spike ~96.31, got {score_spike}"
+        );
+    }
+
+    #[test]
+    fn test_cpu_50_normal_severity() {
+        // CPU 50%, Disk 0, RAM normal
+        // f_cpu(50) = ((45/95)^1.2) * 100 ~= 40.7188
+        // dominant_part = 0.7 * 40.7188 ~= 28.5032
+        // weighted_part = 0.3 * (0.40 * 40.7188) ~= 4.8863
+        // Total score ~= 33.39 (< 40.0, Severity::Normal)
+        let rec = dummy_record(105, 50.0, 100 * 1024 * 1024, 0.0, 0.0);
+        let totals = dummy_totals(50.0, 8, 16);
+        let weights = ScoreWeights::default();
+
+        let (score, bottleneck) = score_process(&rec, None, &totals, &weights);
+        assert_eq!(bottleneck, Bottleneck::Cpu);
+        assert!(
+            score < 40.0,
+            "Expected score < 40.0 for CPU 50%, got {score}"
+        );
+        assert!(
+            (score - 33.39).abs() < 0.2,
+            "Expected score ~33.39, got {score}"
+        );
+        assert_eq!(
+            Severity::from_score(score),
+            Severity::Normal,
+            "Severity should be Normal"
         );
     }
 
@@ -315,14 +364,17 @@ mod tests {
 
         // Case 2: System RAM > 80% (14 / 16 = 87.5%) -> f_ram active
         // proc_ratio = 8 / 16 = 0.5 -> f_ram = 0.5 * 100 * 1.5 = 75.0
-        // score = 0.25 * 75.0 = 18.75
+        // dominant_part = 0.7 * 75.0 = 52.5
+        // weighted_part = 0.3 * (0.25 * 75.0) = 5.625
+        // Total score = 52.5 + 5.625 = 58.125
         let totals_high = dummy_totals(10.0, 14, 16);
         let (score_high, b_high) = score_process(&rec, None, &totals_high, &weights);
         assert!(
-            (score_high - 18.75).abs() < 0.1,
-            "Expected score ~18.75, got {score_high}"
+            (score_high - 58.13).abs() < 0.2,
+            "Expected score ~58.13, got {score_high}"
         );
         assert_eq!(b_high, Bottleneck::Memory);
+        assert_eq!(Severity::from_score(score_high), Severity::Suspicious);
     }
 
     #[test]

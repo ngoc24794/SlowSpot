@@ -260,12 +260,14 @@ mod tests {
         let score2 = snap2.processes[0].score;
 
         // Raw score for 80% CPU with spike:
-        // f_cpu(80) = ((75/95)^1.2)*100 ~= 75.33 -> 0.4 * 75.33 ~= 30.13
-        // plus spike 15.0 -> raw score ~= 45.13
-        // Damping window of 3: average of [0.0, 45.13] ~= 22.57
+        // f_cpu(80) = ((75/95)^1.2)*100 ~= 75.33
+        // dominant_part = 0.7 * 75.33 ~= 52.73
+        // weighted_part = 0.3 * (0.4 * 75.33) ~= 9.04
+        // plus spike 15.0 -> raw score ~= 76.77
+        // Damping window of 3: average of [0.0, 76.77] ~= 38.38
         assert!(
-            score2 > 20.0 && score2 < 25.0,
-            "Expected smoothed score with damped spike ~22.57, got {score2}"
+            score2 > 35.0 && score2 < 42.0,
+            "Expected smoothed score with damped spike ~38.38, got {score2}"
         );
         assert_eq!(snap2.processes[0].main_bottleneck, Bottleneck::Cpu);
     }
