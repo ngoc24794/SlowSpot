@@ -72,8 +72,8 @@ pub const FONT_SIZE_HEADING: f32 = 18.0;
 pub const FONT_SIZE_SUBHEADING: f32 = 15.0;
 pub const FONT_SIZE_BODY_LARGE: f32 = 14.0;
 pub const FONT_SIZE_BODY: f32 = 13.0;
-pub const FONT_SIZE_CAPTION: f32 = 11.5;
-pub const FONT_SIZE_TINY: f32 = 10.0;
+pub const FONT_SIZE_CAPTION: f32 = 12.0;
+pub const FONT_SIZE_TINY: f32 = 12.0;
 
 // --- Geometric Shape Indicators for WCAG Color-Independence ---
 
@@ -217,6 +217,13 @@ mod tests {
         assert!(
             muted_on_card >= 4.5,
             "Muted foreground on card must be >= 4.5 (got {muted_on_card:.2})"
+        );
+
+        // 5b. Muted foreground on muted container surface (#272F42)
+        let muted_on_muted = contrast_ratio(COLOR_MUTED_FOREGROUND, COLOR_MUTED);
+        assert!(
+            muted_on_muted >= 4.5,
+            "Muted foreground on muted container must be >= 4.5 (got {muted_on_muted:.2})"
         );
 
         // 6. Accent OK (green) on background & card

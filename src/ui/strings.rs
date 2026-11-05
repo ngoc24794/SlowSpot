@@ -77,11 +77,16 @@ pub const SEVERITY_CULPRIT: &str = "Thủ phạm";
 pub const SELECTED_PROCESS_LABEL: &str = "Đang chọn:";
 pub const SELECTED_NONE: &str = "Chọn một tiến trình trong bảng để thao tác";
 
-// Tooltips for Actions
+// Tooltips & Inline Notices for Actions
 pub const TOOLTIP_SYSTEM_PROTECTED: &str = "Tiến trình hệ thống được bảo vệ và không thể can thiệp";
 pub const TOOLTIP_WAIT_GRACEFUL_PREFIX: &str = "Chờ";
 pub const TOOLTIP_WAIT_GRACEFUL_SUFFIX: &str = "giây sau khi gửi lệnh đóng an toàn để bắt buộc tắt";
 pub const TOOLTIP_EXE_PATH: &str = "Đường dẫn:";
+pub const NOTICE_FORCE_KILL_DISABLED_DEFAULT: &str =
+    "Bắt buộc tắt sẽ khả dụng nếu ứng dụng không đóng sau 5 giây";
+pub const NOTICE_SYSTEM_PROTECTED: &str = "Tiến trình hệ thống được bảo vệ — không thể tắt";
+pub const NOTICE_WAIT_GRACEFUL_PREFIX: &str = "Chờ";
+pub const NOTICE_WAIT_GRACEFUL_SUFFIX: &str = "giây sau Đóng an toàn để Bắt buộc tắt";
 
 // Bottom Status Bar & Shortcuts
 pub const STATUS_HINT_SHORTCUTS: &str =
@@ -168,6 +173,10 @@ mod tests {
         TOOLTIP_WAIT_GRACEFUL_PREFIX,
         TOOLTIP_WAIT_GRACEFUL_SUFFIX,
         TOOLTIP_EXE_PATH,
+        NOTICE_FORCE_KILL_DISABLED_DEFAULT,
+        NOTICE_SYSTEM_PROTECTED,
+        NOTICE_WAIT_GRACEFUL_PREFIX,
+        NOTICE_WAIT_GRACEFUL_SUFFIX,
         STATUS_HINT_SHORTCUTS,
         STATUS_UPDATED_PREFIX,
         STATUS_TOTAL_PROCESSES,
