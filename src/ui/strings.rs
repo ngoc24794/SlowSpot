@@ -77,3 +77,9 @@ pub const MSG_NO_WINDOW: &str =
 pub const MSG_NOT_FOUND: &str = "Không tìm thấy tiến trình hoặc tiến trình đã kết thúc";
 pub const MSG_NO_EXE_PATH: &str = "Không xác định được đường dẫn tệp thực thi";
 pub const MSG_IGNORED_SUCCESS: &str = "Đã thêm vào danh sách bỏ qua";
+
+// Startup & Runtime Errors (Native Dialogs)
+pub const ERR_OPENGL_INIT: &str =
+    "Không thể khởi tạo giao diện đồ hoạ OpenGL 2.0+.\n\nVui lòng cập nhật driver card đồ hoạ hoặc chạy ứng dụng trên máy tính có hỗ trợ OpenGL 2.0 trở lên.";
+pub const ERR_UNEXPECTED_PANIC: &str =
+    "Đã xảy ra sự cố nghiêm trọng không mong muốn khiến ứng dụng phải dừng lại.\n\nỨng dụng sẽ tự động đóng để bảo vệ an toàn cho hệ thống.";
