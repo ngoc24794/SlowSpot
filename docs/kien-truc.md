@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
-| 1.0.0 | Dự thảo hoàn thiện (Ready for Review) | 05/11/2026 | SlowSpot Core Team (Agent Docs) |
+| 1.1.0 | Đã duyệt & Cập nhật Review Fixes | 05/11/2026 | SlowSpot Core Team (Agent Docs) |
 
 ---
 
@@ -20,7 +20,7 @@ flowchart TD
         WinProc["NtQuerySystemInformation / Toolhelp32"]
         WinDisk["Process I/O Counters / Disk Performance"]
         WinMem["GlobalMemoryStatusEx / WorkingSet"]
-        WinMsg["Win32 Window Message (WM_CLOSE / TerminateProcess)"]
+        WinMsg["Win32 Window Message (WM_CLOSE / TerminateProcess / MessageBoxW)"]
     end
 
     subgraph Data_Layer ["Data Collector Layer (Background Thread - 1000ms)"]
@@ -45,12 +45,16 @@ flowchart TD
     end
 
     subgraph Presentation_Layer ["Presentation Layer (Main UI Thread - eframe/egui)"]
+        InitCheck{"Kiểm tra OpenGL 2.0+ (glow)"}
+        FallbackBox["Win32 MessageBoxW: Báo lỗi Driver GPU & Thoát an toàn"]
         HeaderBanner["Header & System Pressure State Banner"]
         CulpritHero["Top Culprit Hero Card (Lý do & Nút Hành động)"]
         Sparklines["60s History Sparklines (CPU, RAM, Disk)"]
         ProcessGrid["Sortable & Searchable Process Table"]
         UI_EventLoop["Reactive Event Loop (Chỉ repaint khi có dữ liệu mới / Tương tác)"]
         
+        InitCheck -- Thất bại --> FallbackBox
+        InitCheck -- Thành công --> UI_EventLoop
         UI_EventLoop --> HeaderBanner
         UI_EventLoop --> CulpritHero
         UI_EventLoop --> Sparklines
@@ -85,9 +89,9 @@ flowchart TD
 | ┌─────────────────────────────┐ |                   |  - WM_CLOSE (Graceful)|
 | │ module `collector`          │ |                   |  - TerminateProcess   |
 | │  - sysinfo (CPU, RAM, Disk) │ |                   |  - ShellExecuteEx     |
-| │  - Delta Rate Calculation   │ |                   +───────────────────────+
-| └──────────────┬──────────────┘ |                               ▲
-|                ▼                |                               │
+| │  - Delta Rate Calculation   │ |                   |  - MessageBoxW (Lỗi)  |
+| └──────────────┬──────────────┘ |                   +───────────────────────+
+|                ▼                |                               ▲
 | ┌─────────────────────────────┐ |                               │
 | │ module `analyzer`           │ |                               │
 | │  - SafetyFilter (Whitelist) │ |                               │
@@ -101,6 +105,7 @@ flowchart TD
                  ▼                                                │
 +─────────────────────────────────────────────────────────────────┼───────────+
 |                       MAIN THREAD (UI RUNTIME)                  │           |
+|  [Khởi tạo: Nếu OpenGL 2.0+ lỗi -> Hiện MessageBoxW -> Thoát]   │           |
 | ┌─────────────────────────────────────────────────────────────┐ │           |
 | │ module `ui` (eframe / egui - Immediate Mode with Reactive)  │ ┼───────────┘
 | │                                                             │
@@ -123,7 +128,7 @@ Dự án được phân rã thành 6 module nội bộ theo chuẩn Rust idiom:
 | **`model`** | Định nghĩa toàn bộ schema dữ liệu, kiểu dữ liệu chung và các enum biểu diễn trạng thái của hệ thống và tiến trình. | `ProcessRecord`, `SystemSnapshot`, `CulpritCandidate`, `SystemPressureState`, `ProcessKind`, `ActionCommand`. |
 | **`collector`** | Quản lý vòng lặp chạy nền định kỳ (mặc định 1000ms), đọc dữ liệu thô từ hệ điều hành, tính toán delta tốc độ CPU và Đọc/Ghi đĩa giữa 2 chu kỳ lấy mẫu liên tiếp. | `SystemCollector`, `MetricSample`, `CollectorConfig`. |
 | **`analyzer`** | Nhận dữ liệu từ `collector`, lọc tiến trình qua `SafetyFilter`, chạy thuật toán tính điểm `CulpritEngine`, phát hiện đột biến (`SpikeDetector`), xếp hạng Top thủ phạm. | `CulpritEngine`, `SafetyFilter`, `ScoreWeights`, `SpikeHistory`. |
-| **`platform`** | Trừu tượng hóa các lời gọi Win32 API đặc thù: lấy đường dẫn thực thi của process, lấy icon ứng dụng, thực thi đóng an toàn qua thông điệp cửa sổ hoặc ép buộc tắt. | `ProcessController`, `win32_utils`, `ElevationManager`. |
+| **`platform`** | Trừu tượng hóa các lời gọi Win32 API đặc thù (qua `windows-sys`): lấy đường dẫn thực thi, icon, thực thi đóng an toàn qua `WM_CLOSE`, ép buộc tắt qua `TerminateProcess`, hiển thị `MessageBoxW` khi lỗi đồ họa. | `ProcessController`, `win32_utils`, `NativeDialog`. |
 | **`ui`** | Kết xuất giao diện người dùng bằng `eframe`/`egui`. Render các thẻ thông tin, bảng dữ liệu, biểu đồ mini (sparklines), quản lý trạng thái hiển thị (Theme, Search, Filter). | `SlowSpotApp`, `HeaderView`, `CulpritCardView`, `ProcessTableView`, `SparklineView`. |
 | **`config`** | Quản lý cấu hình chạy của ứng dụng: chu kỳ lấy mẫu (tick rate), ngưỡng cảnh báo điểm số, danh sách tiến trình người dùng tự bỏ qua (User Ignore List). | `AppConfig`, `ThresholdSettings`. |
 
@@ -202,11 +207,11 @@ Theo định hướng: **Đơn giản, ít dependency, biên dịch nhanh, file 
 | Tiêu chí so sánh | `eframe` / `egui` | `slint` | `iced` | `native-windows-gui` / `windows-rs` |
 | :--- | :--- | :--- | :--- | :--- |
 | **Phiên bản khảo sát** | `0.37.0` | `1.18.1` | `0.14.0` | `native-windows-gui 1.0.13` / `windows 0.62.2` |
-| **Mô hình lập trình** | Immediate Mode (Cực kỳ trực quan, dễ quản lý state) | Declarative DSL riêng (`.slint`) | Retained Mode / The Elm Architecture | Win32 API Event Loop truyền thống |
+| **Mô hình lập trình** | Immediate Mode (Trực quan, dễ quản lý state bảng số liệu) | Declarative DSL riêng (`.slint`) | Retained Mode / The Elm Architecture | Win32 API Event Loop truyền thống |
 | **Thời gian build & Dependency** | Rất nhanh, thuần Rust, rất ít phụ thuộc C++ | Lâu hơn (cần build script xử lý file DSL, backend C++/Rust) | Chậm (kéo theo toàn bộ `wgpu` ecosystem nặng nề) | Rất nhanh (gọi thẳng Win32 DLL hệ thống) |
-| **Kích thước file thực thi release** | ~5 MB - 9 MB (sau strip & LTO) | ~8 MB - 14 MB | ~12 MB - 20 MB | ~1.5 MB - 3 MB |
-| **Độ tương thích phần cứng cũ (No GPU)** | Tuyệt vời với backend **`glow`** (OpenGL 2.1+ / OpenGL ES / Software WARP fallback) | Tốt (hỗ trợ software renderer) | Kém trên máy quá cũ do yêu cầu Vulkan/DirectX 12 của wgpu | Tối đa (sử dụng trực tiếp GDI/User32 của Windows) |
-| **Khả năng tùy biến giao diện / Biểu đồ** | Cực kỳ linh hoạt, vẽ custom shape/sparkline trong 5 dòng code | Tốt nhưng phụ thuộc vào cú pháp DSL | Tốt nhưng boilerplate nhiều | Rất cực khổ, vẽ biểu đồ phải tự xử lý GDI/Direct2D |
+| **Kích thước file thực thi release** | Mục tiêu < 15 MB (ước lượng ~6 - 9 MB sau strip & LTO) | ~8 MB - 14 MB | ~12 MB - 20 MB | ~1.5 MB - 3 MB |
+| **Độ tương thích phần cứng cũ (No GPU)** | Phụ thuộc OpenGL 2.0+ qua backend **`glow`** | Tốt (hỗ trợ software renderer) | Kém trên máy quá cũ do yêu cầu Vulkan/DirectX 12 của wgpu | Tối đa (sử dụng trực tiếp GDI/User32 của Windows) |
+| **Khả năng tùy biến giao diện / Biểu đồ** | Cực kỳ linh hoạt, vẽ custom sparkline trong vài dòng code | Tốt nhưng phụ thuộc vào cú pháp DSL | Tốt nhưng boilerplate nhiều | Rất cực khổ, vẽ biểu đồ phải tự xử lý GDI/Direct2D |
 | **Tình trạng duy trì** | Rất tích cực, cộng đồng Rust GUI số 1 | Tích cực, công ty thương mại chống lưng | Tích cực | `native-windows-gui` đã ngừng cập nhật 4 năm trước |
 
 > [!IMPORTANT]
@@ -214,14 +219,16 @@ Theo định hướng: **Đơn giản, ít dependency, biên dịch nhanh, file 
 > 
 > **Lý do chọn**:
 > 1. `egui` có kiến trúc Immediate Mode giúp việc hiển thị bảng số liệu thay đổi liên tục mỗi giây trở nên vô cùng đơn giản, không cần cơ chế đồng bộ DOM/Widget state phức tạp.
-> 2. Sử dụng backend `glow` (OpenGL) cho phép ứng dụng mở mượt mà trên cả những chiếc PC văn phòng cũ không có card màn hình rời hoặc driver DirectX bị lỗi.
-> 3. Tốc độ biên dịch vượt trội so với `iced` và không yêu cầu cài đặt thêm công cụ build DSL bên ngoài như `slint`.
+> 2. Sử dụng backend `glow` (OpenGL) nhẹ, build nhanh, không kéo theo cả hệ sinh thái wgpu nặng nề.
+> 3. Tốc độ biên dịch vượt trội và không yêu cầu cài đặt thêm công cụ build DSL bên ngoài như `slint`.
 > 
-> **Rủi ro và Biện pháp xử lý**:
-> - *Rủi ro ngốn CPU do vẽ lại liên tục*: Mặc định Immediate Mode vẽ 60 FPS liên tục có thể ngốn 3-5% CPU máy yếu.  
->   $\rightarrow$ **Khắc phục**: Cấu hình chế độ **Reactive Mode**: Không bao giờ gọi `ctx.request_repaint()` liên tục. Chỉ yêu cầu vẽ lại khi kênh dữ liệu có `SystemSnapshot` mới (1 lần/giây) hoặc khi người dùng di chuột/thao tác giao diện (`ctx.request_repaint_after(Duration::from_millis(1000))`). Mức chiếm CPU sẽ duy trì $< 0.5\%$.
+> **Rủi ro đã biết và Giải pháp chốt**:
+> - *Rủi ro đồ họa (Thiếu driver OpenGL)*: Nếu máy hoàn toàn không có driver GPU mà chỉ có driver phần mềm mặc định cổ điển của Windows (OpenGL 1.1), `glow` sẽ không thể khởi tạo bối cảnh render.  
+>   $\rightarrow$ **Quyết định chốt**: SlowSpot sẽ bắt lỗi khởi tạo của `eframe`, sử dụng `MessageBoxW` (qua `windows-sys`) để hiển thị hộp thoại tiếng Việt thông báo rõ nguyên nhân: *"Không thể khởi tạo giao diện đồ họa OpenGL 2.0+. Vui lòng cập nhật driver card đồ họa của bạn."* và thoát an toàn, **tuyệt đối không để ứng dụng crash hoặc treo im lặng**. Phương án backend `wgpu` (hỗ trợ DirectX 12/DirectX 11) được ghi nhận là phương án xem xét cho các giai đoạn sau nếu cần mở rộng tập máy cũ, không đưa vào MVP để tránh phình to kích thước exe.
+> - *Rủi ro ngốn CPU do vẽ lại liên tục*: Immediate Mode mặc định có thể vẽ liên tục gây tốn CPU.  
+>   $\rightarrow$ **Khắc phục**: Cấu hình chế độ **Reactive Mode**: Chỉ yêu cầu vẽ lại khi kênh dữ liệu có `SystemSnapshot` mới (1 lần/giây) hoặc khi người dùng di chuột/thao tác giao diện (`ctx.request_repaint_after(Duration::from_millis(1000))`). Mức chiếm CPU duy trì ở mức mục tiêu $< 1.0\%$ (sẽ đo thực tế khi đóng gói).
 > - *Rủi ro font tiếng Việt*: Font mặc định của egui không có glyphs tiếng Việt có dấu.  
->   $\rightarrow$ **Khắc phục**: Dùng `include_bytes!` nhúng sẵn một font chữ Unicode chuẩn (như `NotoSans-Regular.ttf` hoặc `Inter-Regular.ttf`) dung lượng ~300KB vào binary khi khởi chạy.
+>   $\rightarrow$ **Khắc phục**: Nhúng trực tiếp font chữ **Noto Sans** (giấy phép mở SIL Open Font License 1.1 — OFL 1.1) bản Regular (+ Bold nếu cần) chứa đầy đủ bộ glyph tiếng Việt bằng macro `include_bytes!`. Kèm theo file bản quyền `assets/fonts/OFL.txt` trong repository.
 
 ---
 
@@ -229,26 +236,27 @@ Theo định hướng: **Đơn giản, ít dependency, biên dịch nhanh, file 
 
 | Tiêu chí so sánh | `sysinfo` | `windows-rs` / `windows-sys` trực tiếp | Windows PDH (Performance Counters) | Windows ETW (Event Tracing) | Toolhelp32 API |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Phiên bản khảo sát** | `0.40.1` | `windows-sys 0.60.0` / `windows 0.62.2` | Gọi qua Win32 PDH API | Gọi qua Win32 Trace API | Win32 Toolhelp API |
+| **Phiên bản khảo sát** | `0.40.1` | `windows-sys 0.61.2` / `windows 0.62.2` | Gọi qua Win32 PDH API | Gọi qua Win32 Trace API | Win32 Toolhelp API |
 | **Độ phủ dữ liệu** | Đầy đủ: CPU, RAM, Disk Read/Write theo từng tiến trình | Đầy đủ nhưng phải tự code từ số 0 | Rất chi tiết (% Disk Active Time) | Siêu chi tiết theo từng microsecond | Chỉ có CPU thô và danh sách Process |
 | **Độ phức tạp mã nguồn** | Cực thấp (API Rust sạch sẽ, an toàn, idiomatic) | Cực cao (hàng trăm dòng `unsafe`, tự tính toán delta thời gian CPU) | Trung bình (chuỗi định danh counter phụ thuộc ngôn ngữ Windows) | Rất cao (yêu cầu quản lý session trace kernel) | Trung bình |
 | **Yêu cầu quyền hạn** | Chạy tốt ở quyền Non-Admin thông thường | Chạy được ở quyền Non-Admin | Hay gặp lỗi quyền truy cập Registry Performance | Bắt buộc quyền Quản trị viên (Admin / SYSTEM) | Chạy được ở quyền Non-Admin |
 | **Tải phụ (Overhead) khi đo** | Rất thấp (~10-15ms mỗi chu kỳ 1s) | Thấp | Nặng (PDH truy vấn chuỗi rất tốn CPU máy yếu) | Nặng khi trace toàn bộ I/O | Thấp nhưng thiếu số liệu I/O đĩa |
 
 > [!IMPORTANT]
-> **KHUYẾN NGHỊ CHÍNH THỨC CHO THU THẬP SỐ LIỆU: `sysinfo = "0.40.1"` KẾT HỢP VỚI `windows-sys = "0.60.0"`**
+> **KHUYẾN NGHỊ CHÍNH THỨC CHO THU THẬP SỐ LIỆU: `sysinfo = "0.40.1"` KẾT HỢP VỚI `windows-sys = "0.61.2"`**
 > 
 > **Lý do chọn**:
 > 1. `sysinfo = "0.40.1"` đã giải quyết triệt để bài toán tính toán delta CPU giữa 2 lần lấy mẫu trên Windows, đồng thời cung cấp sẵn số liệu Disk I/O Read/Write bytes trên từng tiến trình mà không làm phát sinh lỗi tràn số hay rò rỉ handle.
-> 2. `windows-sys = "0.60.0"` là crate binding siêu nhẹ (chỉ chứa các định nghĩa hàm C và struct, không có overhead metadata như crate `windows` đầy đủ), chỉ dùng riêng cho các hành động bản địa Windows:
+> 2. `windows-sys = "0.61.2"` là crate binding siêu nhẹ (chỉ chứa các định nghĩa hàm C và struct, không có overhead metadata như crate `windows` đầy đủ), chỉ dùng riêng cho các hành động bản địa Windows:
 >    - Gửi tín hiệu đóng cửa sổ nhẹ nhàng (`PostMessageW` với `WM_CLOSE`).
 >    - Cưỡng bức tắt tiến trình (`OpenProcess` kèm `PROCESS_TERMINATE`, gọi `TerminateProcess`).
 >    - Lấy đường dẫn file exe chuẩn (`QueryFullProcessImageNameW`).
 >    - Mở thư mục chứa file trong Explorer (`ShellExecuteExW`).
+>    - Hiển thị hộp thoại lỗi native (`MessageBoxW`) khi khởi tạo đồ họa thất bại.
 > 
 > **Rủi ro và Biện pháp xử lý**:
-> - *Rủi ro quyền truy cập*: Ở quyền tài khoản người dùng thông thường (Non-Admin), một số tiến trình của Windows (như `lsass.exe`, `csrss.exe`) sẽ trả về kết quả 0% hoặc từ chối truy cập thông tin I/O.  
->   $\rightarrow$ **Khắc phục**: Bắt lỗi an toàn, đánh dấu các tiến trình này là `Chế độ Bảo vệ Hệ thống (Protected)` thay vì gây lỗi ứng dụng. Cung cấp nút bấm "Chạy lại dưới quyền Quản trị (Relaunch as Administrator)" nếu người dùng muốn chẩn đoán sâu hơn.
+> - *Rủi ro quyền truy cập (Access Denied)*: Ở quyền tài khoản người dùng thông thường (Non-Admin), một số tiến trình hệ thống cấp cao của Windows (như `lsass.exe`, `csrss.exe`) sẽ trả về lỗi từ chối truy cập hoặc không đọc được I/O.  
+>   $\rightarrow$ **Khắc phục**: Bắt lỗi an toàn, đánh dấu các tiến trình này là `Chế độ Bảo vệ Hệ thống (Protected)` thay vì gây lỗi ứng dụng. Khi người dùng thao tác vào các tiến trình này, hiển thị thông báo rõ ràng: *"Yêu cầu quyền Quản trị viên để can thiệp"*. Quyết định chốt: **Bỏ tính năng tự động chạy lại dưới quyền Admin (Relaunch as Administrator) khỏi MVP** để giữ luồng xử lý đơn giản, chuyển sang xem xét ở giai đoạn sau.
 
 ---
 
@@ -269,8 +277,10 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 ### 5.2. Nhúng Toàn bộ Tài nguyên vào Binary (Zero External Assets)
 Không sử dụng bất kỳ đường dẫn file rời nào trên ổ đĩa. Mọi asset tĩnh được nạp thẳng vào phân vùng `.rdata` của file thực thi bằng macro `include_bytes!`:
-- Font chữ tiếng Việt: `static FONT_VIETNAMESE: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");`
-- Icon ứng dụng: Đóng gói icon `.ico` thẳng vào tài nguyên Windows thông qua crate `winres` trong giai đoạn build.
+- **Font chữ tiếng Việt**: Nhúng font **Noto Sans Regular** (giấy phép mở SIL Open Font License 1.1) qua `include_bytes!("../assets/fonts/NotoSans-Regular.ttf")`. Repo lưu kèm file `assets/fonts/OFL.txt`.
+- **DPI Awareness & Application Manifest**:
+  - `eframe`/`winit` đã tự động tích hợp xử lý Per-Monitor High-DPI V2 theo mặc định, không cần cấu hình can thiệp thêm.
+  - Manifest ứng dụng và icon (nếu cần) được nhúng qua `build.rs` kết hợp crate `embed-resource` (hoặc xem như tùy chọn bổ sung), ưu tiên phương án tối giản nhất để giữ bản build tinh gọn.
 
 ### 5.3. Tối ưu Kích thước và Tốc độ (Cargo Profile Optimization)
 Cấu hình tối ưu hóa trong `Cargo.toml` để tạo ra file `.exe` siêu nhỏ và chạy nhanh:
@@ -281,10 +291,10 @@ opt-level = "z"         # Tối ưu kích thước binary (size optimization)
 lto = true              # Link-Time Optimization loại bỏ toàn bộ code thừa xuyên crate
 codegen-units = 1       # Tăng hiệu quả nén LTO
 panic = "abort"         # Loại bỏ bảng unwinding stack không cần thiết
-strip = true            # Tự động gỡ bỏ toàn bộ debug symbols (tương đương chạy strip.exe)
+strip = true            # Tự động gỡ bỏ toàn bộ debug symbols
 ```
 
-*Kết quả dự kiến*: File `.exe` hoàn chỉnh đạt kích thước chỉ khoảng **5.5 MB đến 7.5 MB**, khởi động tức thì dưới 100ms.
+*Kết quả dự kiến*: File `.exe` hoàn chỉnh có kích thước mục tiêu **< 15 MB** (ước lượng khoảng 6 - 9 MB sau khi cấu hình strip và LTO; các số liệu kích thước, thời gian khởi động mục tiêu < 1 giây, RAM mục tiêu < 60 MB và CPU mục tiêu < 1.0% sẽ được đo đạc thực tế khi hoàn thiện đóng gói bản release và ghi nhận số đo thật vào báo cáo).
 
 ---
 
@@ -292,11 +302,12 @@ strip = true            # Tự động gỡ bỏ toàn bộ debug symbols (tươ
 
 | Tình huống rủi ro (Risk / Edge Case) | Hậu quả tiềm ẩn | Chiến lược giải quyết của SlowSpot |
 | :--- | :--- | :--- |
-| **Máy PC đời cũ không có GPU rời / Driver đồ họa lỗi** | Cửa sổ ứng dụng bị đen xì, crash khi khởi tạo OpenGL/DirectX. | Khởi tạo `eframe` với backend `glow`. Cài đặt cờ fallback: Nếu `glow` không tạo được ngữ cảnh phần cứng, chuyển sang chế độ phần mềm của Windows (DirectX WARP rasterizer) để đảm bảo luôn hiển thị. |
-| **Màn hình độ phân giải cao (High-DPI 4K, 150%, 200%)** | Giao diện bị mờ, chữ bé tí hoặc vỡ khung hiển thị. | Khai báo Windows Per-Monitor V2 DPI Awareness trong file manifest thông qua `winres`. `egui` tự động scale theo DPI ratio của Windows, đảm bảo văn bản sắc nét 100%. |
+| **Máy PC đời cũ không có driver OpenGL 2.0+ (chỉ có OpenGL 1.1 software)** | Cửa sổ ứng dụng bị lỗi khởi tạo ngữ cảnh render. | **Quyết định chốt**: Dùng `windows-sys = "0.61.2"` gọi `MessageBoxW` hiển thị hộp thoại tiếng Việt: *"Không thể khởi tạo đồ họa OpenGL 2.0+. Vui lòng cập nhật driver card đồ họa."*, sau đó thoát an toàn, không crash/treo. Ghi nhận đây là rủi ro đã biết; không đưa `wgpu` vào MVP (chuyển `wgpu` sang giai đoạn sau). |
+| **Màn hình độ phân giải cao (High-DPI 4K, 125%, 150%, 200%)** | Giao diện bị mờ hoặc co giật khung hình. | Tận dụng cơ chế nhận diện Per-Monitor DPI mặc định của `eframe`/`winit`. Tự động co giãn theo tỷ lệ DPI của hệ điều hành, đảm bảo văn bản tiếng Việt luôn sắc nét 100%. |
 | **Người dùng vô tình bấm tắt tiến trình trọng yếu của Windows** | Máy tính bị màn hình xanh chết chóc (BSOD) hoặc khởi động lại đột ngột. | Thiết lập **Danh sách Trắng Cứng (Hardcoded Critical Whitelist)** gồm: `smss.exe`, `csrss.exe`, `wininit.exe`, `services.exe`, `lsass.exe`, `winlogon.exe`, `fontdrvhost.exe`. Nút tắt đối với các tiến trình này bị khóa vĩnh viễn (Disabled) kèm icon ổ khóa cảnh báo. |
-| **Ứng dụng bị treo cứng (Deadlock / Not Responding)** | Gửi lệnh `WM_CLOSE` nhưng ứng dụng treo không phản hồi. | Cơ chế 2 bước: Bước 1 gửi `WM_CLOSE` lịch sự. Nếu sau 5 giây tiến trình vẫn còn tồn tại trong danh sách của `sysinfo`, giao diện hiển thị tùy chọn màu đỏ: "Ứng dụng không phản hồi — Bắt buộc tắt (Force Terminate via TerminateProcess)". |
-| **Tự gây nghẽn máy (Self-induced Performance Penalty)** | Thu thập dữ liệu quá dày làm ngốn thêm CPU của hệ thống đang quá tải. | Cố định chu kỳ thu thập ở mức 1000ms. Sử dụng `sysinfo` với cờ làm mới chọn lọc (`ProcessRefreshKind` chỉ lấy CPU + Disk, bỏ qua các thông tin người dùng/môi trường không cần thiết). |
+| **Ứng dụng bị treo cứng (Deadlock / Not Responding)** | Gửi lệnh `WM_CLOSE` nhưng ứng dụng treo không phản hồi. | Cơ chế 2 bước: Bước 1 gửi `WM_CLOSE` an toàn. Nếu sau 5 giây tiến trình vẫn còn tồn tại trong danh sách của `sysinfo`, giao diện hiển thị tùy chọn: *"Ứng dụng không phản hồi — Bắt buộc tắt (Force Terminate via TerminateProcess)"*. |
+| **Tiến trình yêu cầu quyền quản trị (Access Denied)** | Thao tác tắt hoặc đọc dữ liệu bị Windows từ chối truy cập. | Hiển thị thông báo rõ ràng: *"Yêu cầu quyền Quản trị viên để can thiệp"*, không làm crash ứng dụng. Bỏ tính năng "Relaunch as Administrator" khỏi MVP để tinh giản luồng xử lý. |
+| **Tự gây nghẽn máy (Self-induced Performance Penalty)** | Thu thập dữ liệu quá dày làm ngốn thêm CPU của hệ thống đang quá tải. | Cố định chu kỳ thu thập ở mức 1000ms. Sử dụng `sysinfo` với cờ làm mới chọn lọc (`ProcessRefreshKind` chỉ lấy CPU + Disk). UI chạy chế độ Reactive Repaint để duy trì mức tiêu thụ CPU mục tiêu < 1.0%. |
 
 ---
 
@@ -313,10 +324,10 @@ Kế hoạch kiểm thử đảm bảo SlowSpot đạt chất lượng chuẩn s
 │  - Bộ lọc SafetyFilter   │  - Giả lập Disk Thrashing   │
 │  - Xử lý chuỗi & font    │  - Giả lập Cạn kiệt RAM     │
 ├──────────────────────────┼─────────────────────────────┤
-│ 3. Windows Native Tests  │ 4. Clean Sandbox Tests      │
-│  - Quyền Non-Admin vs Adm│  - Windows 10/11 mới tinh   │
-│  - Graceful Close via Win│  - Không có VC++ Runtime    │
-│  - Kill Process an toàn  │  - Đo kích thước & RAM/CPU  │
+│ 3. Windows Native Tests  │ 4. Kiểm chứng Đóng gói Tĩnh │
+│  - Quyền Non-Admin       │  - dumpbin /dependents      │
+│  - Graceful Close        │  - Clean Windows Sandbox    │
+│  - Bắt lỗi OpenGL 1.1    │  - Đo đạc RAM/CPU/Kích thước│
 └──────────────────────────┴─────────────────────────────┘
 ```
 
@@ -335,13 +346,23 @@ Kế hoạch kiểm thử đảm bảo SlowSpot đạt chất lượng chuẩn s
   - Sinh kịch bản 2: Giả lập xung đột đĩa (Disk thrashing) với tốc độ ghi 120 MB/s.
   - Kiểm tra xem UI có chuyển trạng thái sang màu Đỏ và đưa tiến trình này lên vị trí Card đầu tiên trong vòng tối đa 2 giây hay không.
 
-### 7.3. Kiểm thử trên Môi trường Thực tế (End-to-End & Clean Environment)
-1. **Kiểm thử Tính Độc lập (Clean Windows Sandbox)**:
-   - Bật một máy ảo Windows Sandbox (môi trường Windows sạch 100%, chưa cài bất kỳ gói phần mềm nào của nhà phát triển).
+### 7.3. Kiểm thử trên Môi trường Thực tế & Đóng gói Portable
+1. **Kiểm chứng Độc lập Tĩnh tại chỗ (In-Place Dependency Verification)**:
+   - Chạy lệnh kiểm tra import table của PE binary:
+     ```cmd
+     dumpbin /dependents target/release/slowspot.exe
+     ```
+   - *Tiêu chí đạt*: Kết quả chỉ chứa các DLL hệ thống có sẵn của Windows (`KERNEL32.dll`, `USER32.dll`, `GDI32.dll`, `OPENGL32.dll`, `SHELL32.dll`, `ADVAPI32.dll`, `WS2_32.dll`, ...). **Tuyệt đối KHÔNG có phụ thuộc vào `VCRUNTIME140.dll`, `MSVCP140.dll` hay các file `api-ms-win-crt-*.dll`**. Phương pháp này giúp kiểm chứng nhanh tính portable tĩnh ngay tại môi trường phát triển mà không cần mở máy ảo.
+2. **Kiểm thử trên Môi trường Sạch (Clean Windows Sandbox)**:
+   - Khởi chạy Windows Sandbox (môi trường Windows sạch 100%, chưa cài bất kỳ runtime nào).
    - Copy file `slowspot.exe` vào và double-click.
-   - *Tiêu chí đạt*: Ứng dụng bật lên ngay, hiển thị đúng font tiếng Việt, các chỉ số nhảy đều, không xuất hiện bất kỳ hộp thoại báo thiếu file `.dll` nào.
-2. **Kiểm thử Đo lường Mức chiếm dụng (Resource Overhead Test)**:
-   - Mở Windows Performance Monitor (`perfmon.exe`), theo dõi tiến trình `slowspot.exe` trong 15 phút.
-   - *Tiêu chí đạt*: CPU $< 1.0\%$ liên tục; RAM Private Working Set $< 35\text{ MB}$.
-3. **Kiểm thử Phân quyền (Permission & Elevation)**:
-   - Chạy ở quyền Standard User: Thao tác tắt các ứng dụng cùng quyền (như Notepad, Browser) phải thành công. Thao tác với tiến trình hệ thống phải hiển thị thông báo phân quyền rõ ràng, không crash ứng dụng.
+   - *Tiêu chí đạt*: Ứng dụng khởi động bình thường (mục tiêu < 1 giây), hiển thị đúng font tiếng Việt Noto Sans, không có hộp thoại báo thiếu DLL.
+3. **Kiểm thử Bắt lỗi Khởi tạo Đồ họa (OpenGL Fallback Verification)**:
+   - Giả lập môi trường thiếu driver GPU (hoặc can thiệp mock trả về lỗi tại điểm khởi tạo bối cảnh `eframe::run_native`).
+   - *Tiêu chí đạt*: Ứng dụng không bị crash âm thầm hay treo tiến trình; hiển thị hộp thoại `MessageBoxW` tiếng Việt thông báo rõ ràng nguyên nhân và thoát an toàn với exit code phù hợp.
+4. **Kiểm thử Đo lường Mức chiếm dụng Thực tế**:
+   - Sử dụng Windows Performance Monitor (`perfmon.exe`), theo dõi tiến trình `slowspot.exe` trong 15 phút.
+   - *Tiêu chí đạt*: CPU mục tiêu $< 1.0\%$; RAM Private Working Set mục tiêu $< 60\text{ MB}$. Toàn bộ số đo thực tế sẽ được ghi nhận vào báo cáo đóng gói.
+5. **Kiểm thử Xử lý Phân quyền (Access Denied)**:
+   - Chạy ở quyền Standard User: Thao tác với các tiến trình hệ thống cấp cao (chạy quyền SYSTEM).
+   - *Tiêu chí đạt*: Hiển thị thông báo "Yêu cầu quyền Quản trị viên để can thiệp", không crash ứng dụng.

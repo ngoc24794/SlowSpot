@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
-| 1.0.0 | Dự thảo hoàn thiện (Ready for Review) | 05/11/2026 | SlowSpot Core Team (Agent Docs) |
+| 1.1.0 | Đã duyệt & Cập nhật Review Fixes | 05/11/2026 | SlowSpot Core Team (Agent Docs) |
 
 ---
 
@@ -72,12 +72,16 @@ SlowSpot phục vụ 3 nhóm người dùng điển hình:
   - Đóng an toàn (`Graceful Close` via `WM_CLOSE`).
   - Cưỡng bức tắt (`Force Kill` via `TerminateProcess`).
   - Mở thư mục chứa file thực thi trong File Explorer.
+  - Xử lý lỗi phân quyền rõ ràng: Khi gặp tiến trình bị `Access Denied`, hiển thị thông báo yêu cầu quyền Quản trị viên thay vì crash.
 - **Tiêu chuẩn Portable & Trải nghiệm**:
   - 1 file `.exe` duy nhất, không ghi vào Registry hay AppData nếu không được yêu cầu.
-  - Tự động thích ứng kích thước hiển thị (High-DPI 100% đến 200%).
-  - Hỗ trợ đầy đủ tiếng Việt có dấu với font chữ nhúng sẵn.
+  - DPI awareness do `eframe`/`winit` tự động xử lý mặc định (co giãn chuẩn xác ở mọi mức DPI 100% đến 200%).
+  - Hỗ trợ đầy đủ tiếng Việt có dấu với font chữ **Noto Sans** (giấy phép mở SIL Open Font License 1.1 — OFL 1.1) nhúng trực tiếp vào binary, kèm file `assets/fonts/OFL.txt` trong repository.
+  - Xử lý lỗi khởi tạo đồ họa an toàn: Nếu máy không hỗ trợ OpenGL 2.0+, hiển thị hộp thoại `MessageBoxW` tiếng Việt giải thích rõ ràng và thoát êm đẹp.
 
 ### 4.2. Không làm trong MVP / Chuyển sang giai đoạn sau (Out-of-Scope / Future Roadmap)
+- **Tự động khởi động lại dưới quyền Quản trị viên (Relaunch as Administrator)**: Chưa đưa vào MVP (ở MVP chỉ cần hiển thị thông báo rõ ràng khi bị Access Denied).
+- **Backend đồ họa đa nền tảng wgpu (DirectX 12 / Vulkan)**: Chưa đưa vào MVP để giữ binary nhỏ gọn, build nhanh; sẽ xem xét ở giai đoạn sau nếu cần hỗ trợ máy không có driver OpenGL.
 - **Giám sát GPU nâng cao (3D Engine, VRAM, Video Encode)**: Chưa đưa vào MVP vì API giám sát GPU của Windows (DirectX/DXGI/NVAPI) phức tạp, phụ thuộc driver hãng và dễ gây crash trên máy tính không có card đồ họa rời.
 - **Giám sát lưu lượng mạng chi tiết từng tiến trình (Network per Process)**: Đòi hỏi quyền quản trị nâng cao hoặc ETW kernel provider, làm tăng kích thước ứng dụng và rủi ro bị phần mềm diệt virus chặn nhầm.
 - **Tự động tắt tiến trình ngầm (Autokill)**: Không tự ý tắt bất kỳ tiến trình nào của người dùng khi chưa có xác nhận thủ công.
@@ -95,8 +99,11 @@ SlowSpot phục vụ 3 nhóm người dùng điển hình:
    ▼
 [1] Double-click chạy file "slowspot.exe" (Không cần cài đặt)
    │
+   ├── [Trường hợp Lỗi đồ họa: Máy thiếu OpenGL 2.0+]
+   │      └── Hiển thị MessageBoxW tiếng Việt: "Không thể khởi tạo đồ họa OpenGL..." -> Thoát an toàn
+   │
    ▼
-[2] Ứng dụng khởi động (< 300ms) & Thu thập mẫu ban đầu
+[2] Ứng dụng khởi động (Mục tiêu < 1 giây, đo thực tế khi đóng gói) & Thu thập mẫu ban đầu
    │
    ▼
 [3] Màn hình chính xuất hiện:
@@ -115,23 +122,24 @@ SlowSpot phục vụ 3 nhóm người dùng điển hình:
    ├── [Trường hợp B: Đây là tiến trình cố ý chạy (VD: Đang render / tải game)]
    │      └── Bấm "Bỏ qua thủ phạm này" -> Thuật toán chuyển sang cảnh báo tiến trình kế tiếp
    │
-   └── [Trường hợp C: Người dùng muốn theo dõi liên tục]
-          └── Bấm biểu tượng "Thu nhỏ (Mini Mode)" -> Thu gọn thành widget nhỏ ghim góc màn hình
+   └── [Trường hợp C: Thao tác trúng tiến trình bị Access Denied]
+          └── Hiển thị thông báo: "Không đủ quyền can thiệp tiến trình này (Cần quyền Administrator)"
 ```
 
 ---
 
 ## 6. Tiêu chí Chấp nhận Sản phẩm (Acceptance Criteria)
 
-Tất cả tiêu chí dưới đây phải được đo kiểm định lượng trên hệ thống thử nghiệm Windows 10/11 x86_64:
+Các chỉ số tài nguyên và thời gian dưới đây là **mục tiêu thiết kế**, sẽ được đo đạc thực tế khi hoàn thiện đóng gói bản release và ghi lại số đo thật vào báo cáo:
 
-| Mã tiêu chí | Hạng mục | Tiêu chí định lượng chấp nhận | Phương pháp kiểm chứng |
+| Mã tiêu chí | Hạng mục | Tiêu chí chấp nhận (Mục tiêu thiết kế) | Phương pháp kiểm chứng |
 | :--- | :--- | :--- | :--- |
-| **AC-01** | **Thời gian khởi động** | Thời gian từ lúc double-click đến khi hiển thị frame giao diện đầu tiên **< 300 ms** trên máy tính văn phòng tiêu chuẩn (Core i3 thế hệ 8 trở lên, ổ SSD). | Đo bằng lệnh đo thời gian khởi tạo tiến trình (`Measure-Command`). |
-| **AC-02** | **Tính Portable & Độc lập** | Đúng **1 file duy nhất `.exe`**, không sinh file rác vào thư mục chạy, không yêu cầu cài đặt bất kỳ runtime nào (kể cả Visual C++ Redistributable 2015-2022). | Chạy thử nghiệm trên máy ảo Windows 10/11 cài mới hoàn toàn (Clean Windows Sandbox) không kết nối Internet. |
-| **AC-03** | **Chiếm dụng tài nguyên của SlowSpot** | - CPU trung bình: **< 1.0%** khi chạy nền / hiển thị thông thường.<br>- RAM tiêu thụ: **< 35 MB Private Working Set**.<br>- Disk I/O của SlowSpot: **0 MB/s** (không ghi đĩa định kỳ). | Dùng Performance Monitor (`perfmon`) theo dõi chính tiến trình `slowspot.exe` trong 10 phút. |
+| **AC-01** | **Thời gian khởi động** | Thời gian từ lúc double-click đến khi hiển thị frame giao diện đầu tiên **mục tiêu < 1 giây** (sẽ đo thực tế khi đóng gói và ghi lại số đo thật) trên máy tính văn phòng tiêu chuẩn (Core i3 thế hệ 8 trở lên, ổ SSD). | Đo bằng lệnh đo thời gian khởi tạo tiến trình (`Measure-Command`). |
+| **AC-02** | **Tính Portable & Độc lập** | Đúng **1 file duy nhất `.exe`**, không sinh file rác vào thư mục chạy, không yêu cầu cài đặt bất kỳ runtime nào (kể cả Visual C++ Redistributable 2015-2022). | 1. Kiểm tra tĩnh tại chỗ: Chạy `dumpbin /dependents slowspot.exe` xác nhận không có `vcruntime140.dll` / `msvcp140.dll`.<br>2. Chạy thử nghiệm trên máy ảo Windows 10/11 sạch hoàn toàn (Clean Windows Sandbox). |
+| **AC-03** | **Chiếm dụng tài nguyên của SlowSpot** | - CPU trung bình: **mục tiêu < 1.0%** khi chạy nền / hiển thị thông thường (sẽ đo thực tế khi đóng gói).<br>- RAM tiêu thụ: **mục tiêu < 60 MB Private Working Set** (sẽ đo thực tế khi đóng gói).<br>- Disk I/O của SlowSpot: **0 MB/s** (không ghi đĩa định kỳ). | Dùng Performance Monitor (`perfmon`) theo dõi chính tiến trình `slowspot.exe` trong 10 phút. |
 | **AC-04** | **Độ chính xác nhận diện thủ phạm** | Nhận diện chính xác 100% tiến trình gây nghẽn trong các kịch bản thử nghiệm:<br>1. Kịch bản Stress CPU (1 tiến trình chạy vòng lặp vô tận chiếm > 80% CPU).<br>2. Kịch bản Disk Thrashing (1 tiến trình liên tục đọc/ghi file lớn làm bão hòa I/O).<br>3. Kịch bản Cạn kiệt RAM (tiến trình rò rỉ RAM chiếm > 85% dung lượng còn lại). | Chạy các script giả lập tải (`stress-cpu.exe`, `io-heavy.exe`) và kiểm tra xem SlowSpot có gắn cờ đúng thủ phạm trong vòng **3 giây** (3 chu kỳ lấy mẫu) hay không. |
 | **AC-05** | **Bảo vệ hệ thống (Safety)** | Tuyệt đối không cho phép người dùng kích hoạt lệnh Terminate đối với các tiến trình nằm trong `System Safety Whitelist` (`smss.exe`, `csrss.exe`, `lsass.exe`, `winlogon.exe`, v.v.). Nút bấm phải bị vô hiệu hóa hoặc có cảnh báo chặn rõ ràng. | Thử thao tác với các tiến trình hệ thống trong danh sách hiển thị. |
-| **AC-06** | **Chất lượng hiển thị & Ngôn ngữ** | - 100% văn bản giao diện hiển thị đúng tiếng Việt có dấu, không lỗi font ô vuông (`tofu`).<br>- Giao diện tự co giãn sắc nét trên các tỷ lệ High-DPI: 100%, 125%, 150%, 200%. | Kiểm tra trực quan trên màn hình độ phân giải Full HD (100%), 2K (125%), 4K (150% - 200%). |
-| **AC-07** | **Kích thước file thực thi** | Kích thước file thực thi release **< 15 MB** (mục tiêu tối ưu < 10 MB). | Kiểm tra dung lượng file đầu ra tại `target/release/slowspot.exe`. |
-| **AC-08** | **Khả năng phục hồi & Chịu lỗi** | Khi gặp tiến trình bị Access Denied (do quyền Administrator của tiến trình mục tiêu cao hơn), SlowSpot không được crash, mà hiển thị thông báo "Yêu cầu quyền Quản trị viên để can thiệp". | Chạy SlowSpot dưới quyền người dùng chuẩn (Standard User) và tương tác với tiến trình của tài khoản SYSTEM. |
+| **AC-06** | **Chất lượng hiển thị & Ngôn ngữ** | - 100% văn bản giao diện hiển thị đúng tiếng Việt có dấu với font Noto Sans nhúng sẵn, không lỗi font ô vuông (`tofu`).<br>- Giao diện tự co giãn sắc nét trên các tỷ lệ High-DPI: 100%, 125%, 150%, 200% nhờ cơ chế mặc định của `eframe`/`winit`. | Kiểm tra trực quan trên màn hình độ phân giải Full HD (100%), 2K (125%), 4K (150% - 200%). |
+| **AC-07** | **Kích thước file thực thi** | Kích thước file thực thi release **mục tiêu < 15 MB** (ước lượng khoảng 6 - 9 MB sau khi cấu hình strip & LTO, sẽ đo thực tế khi đóng gói). | Kiểm tra dung lượng file đầu ra tại `target/release/slowspot.exe`. |
+| **AC-08** | **Khả năng phục hồi & Chịu lỗi** | Khi gặp tiến trình bị Access Denied (do quyền Administrator của tiến trình mục tiêu cao hơn), SlowSpot không được crash, mà hiển thị thông báo rõ ràng "Yêu cầu quyền Quản trị viên để can thiệp". | Chạy SlowSpot dưới quyền người dùng chuẩn (Standard User) và tương tác với tiến trình của tài khoản SYSTEM. |
+| **AC-09** | **Xử lý lỗi đồ họa OpenGL (Fallback Error Notice)** | Khi khởi tạo đồ họa OpenGL 2.0+ thất bại (máy không có driver GPU, chỉ có OpenGL 1.1 phần mềm của Windows), SlowSpot không được crash hoặc treo im lặng; ứng dụng phải bắt lỗi và hiển thị một hộp thoại Win32 `MessageBoxW` bằng tiếng Việt giải thích rõ nguyên nhân kèm gợi ý cập nhật driver GPU, sau đó thoát an toàn. | Giả lập môi trường thiếu OpenGL hoặc can thiệp bối cảnh khởi tạo để kiểm chứng hộp thoại thông báo. |
