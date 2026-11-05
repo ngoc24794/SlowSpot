@@ -8,7 +8,7 @@
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Margin, RichText, Sense, Stroke, Vec2};
+use eframe::egui::{self, Margin, Pos2, RichText, Sense, Stroke, Vec2};
 
 use crate::model::{ActionCommand, ScoredProcess, SystemSnapshot};
 use crate::ui::actions::ActionRunner;
@@ -63,10 +63,9 @@ impl SlowSpotApp {
     }
 }
 
-impl eframe::App for SlowSpotApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let now = Instant::now();
-
+impl SlowSpotApp {
+    /// Renders the complete dashboard interface.
+    pub fn render_ui(&mut self, ui: &mut egui::Ui, now: Instant) {
         // 1. Drain incoming snapshots from the collector thread
         let mut got_snapshot = false;
         while let Ok(snapshot) = self.rx.try_recv() {
@@ -88,36 +87,49 @@ impl eframe::App for SlowSpotApp {
             .frame(
                 egui::Frame::new()
                     .fill(COLOR_CARD)
-                    .inner_margin(Margin::symmetric(12, 6))
-                    .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE)),
+                    .inner_margin(Margin::symmetric(12, 4))
+                    .stroke(Stroke::new(1.0, COLOR_BORDER)),
             )
             .show_separator_line(false)
             .show(ui, |ui| {
+                // 1px top border separating status bar from content
+                let top_y = ui.max_rect().top();
+                ui.painter().line_segment(
+                    [
+                        Pos2::new(ui.max_rect().left(), top_y),
+                        Pos2::new(ui.max_rect().right(), top_y),
+                    ],
+                    Stroke::new(1.0, COLOR_BORDER),
+                );
                 self.render_bottom_status_bar(ui, now);
             });
 
-        // 5. Central Dashboard Content with uniform 12px outer margin
+        // 5. Central Dashboard Content with 12px horizontal and 8px vertical outer margin
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
                     .fill(COLOR_BG)
-                    .inner_margin(Margin::same(12)),
+                    .inner_margin(Margin::symmetric(12, 6)),
             )
             .show(ui, |ui| {
+                // Clip strictly to central panel bounds to prevent painting over status bar
+                let central_clip = ui.clip_rect().intersect(ui.max_rect());
+                ui.set_clip_rect(central_clip);
+
                 // Ephemeral Toast Notifications (if any)
                 self.render_toast_and_status(ui, now);
 
                 // Header Banner (Title, Demo, Status Pill, Mini Chips, Pause Button)
                 self.render_header_banner(ui, now);
-                ui.add_space(6.0);
+                ui.add_space(3.0);
 
                 // Top Culprit Hero Card / Smooth Status Banner
                 self.render_top_culprit_card(ui, now);
-                ui.add_space(6.0);
+                ui.add_space(3.0);
 
                 // Real-time Sparklines (CPU, RAM, Disk)
                 self.render_sparklines(ui);
-                ui.add_space(6.0);
+                ui.add_space(3.0);
 
                 // Process Table (Takes remaining vertical space, internal vertical scroll only)
                 self.render_process_table(ui, now);
@@ -125,6 +137,12 @@ impl eframe::App for SlowSpotApp {
 
         // 6. Modal confirmation dialog for forced kill
         self.render_confirm_kill_dialog(ui, now);
+    }
+}
+
+impl eframe::App for SlowSpotApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.render_ui(ui, Instant::now());
     }
 }
 
@@ -361,7 +379,7 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(fill_color)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(12, 8))
+            .inner_margin(Margin::symmetric(12, 5))
             .stroke(Stroke::new(1.0, border_color));
 
         card_frame.show(ui, |ui| {
@@ -651,7 +669,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_DESTRUCTIVE,
-                    size: Vec2::new(w0, 72.0),
+                    size: Vec2::new(w0, 62.0),
                 },
                 &cpu_values,
             );
@@ -664,7 +682,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_WARNING,
-                    size: Vec2::new(w1, 72.0),
+                    size: Vec2::new(w1, 62.0),
                 },
                 &ram_values,
             );
@@ -677,7 +695,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: max_disk,
                     line_color: COLOR_ACCENT_OK,
-                    size: Vec2::new(w2, 72.0),
+                    size: Vec2::new(w2, 62.0),
                 },
                 &disk_values,
             );
@@ -690,11 +708,13 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(12, 8))
+            .inner_margin(Margin::symmetric(10, 5))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         card_frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
+            let card_clip = ui.clip_rect().intersect(ui.max_rect());
+            ui.set_clip_rect(card_clip);
 
             // Header Row: Section Title and Search Input Box
             ui.horizontal(|ui| {
@@ -718,7 +738,7 @@ impl SlowSpotApp {
                 });
             });
 
-            ui.add_space(6.0);
+            ui.add_space(2.0);
 
             // Column Header Layout Computation
             let card_available = ui.available_width();
@@ -726,7 +746,7 @@ impl SlowSpotApp {
             let layout = TableLayout::compute(card_available, spacing);
 
             // Flat Table Headers
-            let header_frame = egui::Frame::new().inner_margin(Margin::symmetric(4, 2));
+            let header_frame = egui::Frame::new().inner_margin(Margin::symmetric(4, 0));
             header_frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let sort_col = self.state.sort_column;
@@ -874,28 +894,31 @@ impl SlowSpotApp {
                 });
             });
 
-            // Subtle divider line
-            ui.add_space(2.0);
+            // Compact 1px divider directly below header (Defect 3: reduces header gap)
             let sep_stroke = Stroke::new(1.0, COLOR_BORDER_SUBTLE);
             let sep_rect = ui
                 .allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover())
                 .0;
             ui.painter()
                 .line_segment([sep_rect.left_top(), sep_rect.right_top()], sep_stroke);
-            ui.add_space(2.0);
 
             // Reserve room for bottom action bar if process is selected, and let rows scroll inside
             let bottom_bar_height = if self.state.selected_pid.is_some() {
-                40.0
+                42.0
             } else {
                 0.0
             };
-            let available_h = (ui.available_height() - bottom_bar_height).max(60.0);
+            let card_bottom_margin = 5.0;
+            let available_h =
+                (ui.available_height() - bottom_bar_height - card_bottom_margin).max(60.0);
 
             egui::ScrollArea::vertical()
                 .max_height(available_h)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let scroll_clip = ui.clip_rect().intersect(ui.max_rect());
+                    ui.set_clip_rect(scroll_clip);
                     let top_20: Vec<ScoredProcess> = self
                         .state
                         .filtered_processes()
@@ -1185,7 +1208,7 @@ impl SlowSpotApp {
 
                 ui.label(
                     RichText::new("|")
-                        .color(COLOR_BORDER_SUBTLE)
+                        .color(COLOR_BORDER)
                         .size(FONT_SIZE_CAPTION),
                 );
 
@@ -1667,5 +1690,189 @@ mod tests {
             }
         });
         output.textures_delta.clear();
+    }
+
+    /// Verifies that no process table rows or cells paint over the bottom status bar (Defect 1).
+    #[test]
+    fn test_process_table_clipping_above_status_bar() {
+        use crate::collector::SampleSource;
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        for &(win_w, win_h) in &[(1000.0, 680.0), (760.0, 520.0)] {
+            let (_tx, rx) = std::sync::mpsc::channel();
+            let mut app = SlowSpotApp {
+                rx,
+                actions: Box::new(crate::ui::DemoActions),
+                state: ViewState::new(),
+                demo: true,
+                confirm_kill: None,
+                last_update_instant: None,
+            };
+
+            let mut mock = crate::collector::MockSource::demo();
+            let snap = crate::analyzer::Analyzer::default().analyze(mock.sample());
+            app.state.push_snapshot(snap, Instant::now());
+
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(win_w, win_h),
+                )),
+                ..Default::default()
+            };
+
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.render_ui(ui, Instant::now());
+            });
+
+            // Status bar is at the bottom of the window
+            let status_bar_top = win_h - 32.0;
+
+            for shape in &output.shapes {
+                let clip = shape.clip_rect;
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    let text = text_shape.galley.text();
+                    if text.contains(".exe") || text.contains("MB/s") {
+                        assert!(
+                            clip.max.y <= status_bar_top + 2.0,
+                            "Table text '{}' clip_rect.max.y ({}) must not paint over status bar top ({})",
+                            text,
+                            clip.max.y,
+                            status_bar_top
+                        );
+                    }
+                }
+            }
+            output.textures_delta.clear();
+        }
+    }
+
+    /// Verifies visible rows requirement: >= 12 rows at 1000x680 and >= 8 at 760x520 (Defect 3).
+    #[test]
+    fn test_visible_rows_count_at_supported_resolutions() {
+        use crate::collector::SampleSource;
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let test_cases = [(1000.0f32, 680.0f32, 12usize), (760.0, 520.0, 8)];
+
+        for &(win_w, win_h, expected_min_rows) in &test_cases {
+            let (_tx, rx) = std::sync::mpsc::channel();
+            let mut app = SlowSpotApp {
+                rx,
+                actions: Box::new(crate::ui::DemoActions),
+                state: ViewState::new(),
+                demo: true,
+                confirm_kill: None,
+                last_update_instant: None,
+            };
+
+            let mut mock = crate::collector::MockSource::demo();
+            let snap = crate::analyzer::Analyzer::default().analyze(mock.sample());
+            app.state.push_snapshot(snap, Instant::now());
+
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(win_w, win_h),
+                )),
+                ..Default::default()
+            };
+
+            let mut row_positions = Vec::new();
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.render_ui(ui, Instant::now());
+            });
+
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    let t = text_shape.galley.text();
+                    if t.contains(".exe") {
+                        row_positions.push((t.to_string(), text_shape.pos, shape.clip_rect));
+                    }
+                }
+            }
+
+            assert!(
+                row_positions.len() >= expected_min_rows,
+                "At {}x{}, found {} visible rows, expected at least {}",
+                win_w,
+                win_h,
+                row_positions.len(),
+                expected_min_rows
+            );
+            output.textures_delta.clear();
+        }
+    }
+
+    /// Verifies that plain user apps render as muted text without button-like border (Defect 4).
+    #[test]
+    fn test_plain_app_kind_badge_is_muted_text_without_border() {
+        use crate::model::ProcessKind;
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(300.0, 100.0),
+            )),
+            ..Default::default()
+        };
+
+        // 1. Render UserApp
+        let mut out_app = ctx.run_ui(raw_input.clone(), |ui| {
+            widgets::process_kind_badge(ui, ProcessKind::UserApp);
+        });
+
+        let mut app_rect_count = 0;
+        let mut app_text_found = false;
+        for shape in &out_app.shapes {
+            match &shape.shape {
+                egui::epaint::Shape::Rect(_) => app_rect_count += 1,
+                egui::epaint::Shape::Text(t) if t.galley.text() == strings::KIND_USER_APP => {
+                    app_text_found = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(app_text_found, "UserApp text must be rendered");
+        assert_eq!(
+            app_rect_count, 0,
+            "UserApp must not have background or border rects"
+        );
+        out_app.textures_delta.clear();
+
+        // 2. Render BackgroundService
+        let mut out_svc = ctx.run_ui(raw_input, |ui| {
+            widgets::process_kind_badge(ui, ProcessKind::BackgroundService);
+        });
+
+        let mut svc_rect_count = 0;
+        for shape in &out_svc.shapes {
+            if let egui::epaint::Shape::Rect(_) = &shape.shape {
+                svc_rect_count += 1;
+            }
+        }
+        assert!(
+            svc_rect_count >= 1,
+            "BackgroundService must retain a badge border/pill"
+        );
+        out_svc.textures_delta.clear();
+    }
+
+    /// Verifies status bar contrast and 1px top border specifications (Defect 5).
+    #[test]
+    fn test_status_bar_specs_contrast_and_border() {
+        const {
+            assert!(FONT_SIZE_CAPTION >= 12.0);
+        }
+        assert_eq!(
+            COLOR_MUTED_FOREGROUND,
+            Color32::from_rgb(148, 163, 184),
+            "Status bar text color must be #94A3B8"
+        );
+        assert_eq!(COLOR_BORDER, Color32::from_rgb(71, 85, 105));
     }
 }

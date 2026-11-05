@@ -10,8 +10,8 @@ use eframe::egui::{
 use crate::model::{ProcessKind, Severity};
 use crate::ui::palette::{
     severity_indicator, PressureShape, SeverityShape, COLOR_BORDER_SUBTLE, COLOR_DESTRUCTIVE,
-    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_PROTECTED,
-    COLOR_WARNING, FONT_SIZE_CAPTION, RADIUS_SM,
+    COLOR_FOREGROUND, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_PROTECTED, COLOR_WARNING,
+    FONT_SIZE_CAPTION, RADIUS_SM,
 };
 use crate::ui::strings;
 
@@ -107,15 +107,31 @@ pub fn severity_badge(ui: &mut Ui, severity: Severity) {
     );
 }
 
-/// Renders a badge indicating process kind (Ứng dụng / Dịch vụ nền / Hệ thống).
+/// Renders a badge or label indicating process kind (Ứng dụng / Dịch vụ nền / Hệ thống).
+///
+/// Plain user apps are rendered as unbordered muted text to prevent visual noise and
+/// avoid looking like clickable buttons, while background services and critical system
+/// processes retain distinguishing badges.
 pub fn process_kind_badge(ui: &mut Ui, kind: ProcessKind) {
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+
+    if kind == ProcessKind::UserApp {
+        let galley = ui.painter().layout_no_wrap(
+            strings::KIND_USER_APP.to_string(),
+            font_id,
+            COLOR_MUTED_FOREGROUND,
+        );
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(galley.size().x, 20.0), Sense::hover());
+        let pos = Pos2::new(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        );
+        ui.painter().galley(pos, galley, COLOR_MUTED_FOREGROUND);
+        return;
+    }
+
     let (text, bg_color, fg_color, has_lock) = match kind {
-        ProcessKind::UserApp => (
-            strings::KIND_USER_APP,
-            COLOR_INFO.gamma_multiply(0.18),
-            COLOR_INFO,
-            false,
-        ),
+        ProcessKind::UserApp => unreachable!(),
         ProcessKind::BackgroundService => (
             strings::KIND_BACKGROUND,
             COLOR_MUTED,
@@ -130,7 +146,6 @@ pub fn process_kind_badge(ui: &mut Ui, kind: ProcessKind) {
         ),
     };
 
-    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
     let galley = ui
         .painter()
         .layout_no_wrap(text.to_string(), font_id, fg_color);

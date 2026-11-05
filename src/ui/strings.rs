@@ -44,9 +44,9 @@ pub const BTN_OPEN_LOCATION: &str = "Mở thư mục";
 pub const BTN_IGNORE_CULPRIT: &str = "Bỏ qua thủ phạm này";
 
 // Sparklines
-pub const SPARKLINE_CPU_TITLE: &str = "CPU (60 giây)";
-pub const SPARKLINE_RAM_TITLE: &str = "RAM (60 giây)";
-pub const SPARKLINE_DISK_TITLE: &str = "Đĩa I/O (60 giây)";
+pub const SPARKLINE_CPU_TITLE: &str = "CPU (60s)";
+pub const SPARKLINE_RAM_TITLE: &str = "RAM (60s)";
+pub const SPARKLINE_DISK_TITLE: &str = "Đĩa I/O (60s)";
 pub const SPARKLINE_PEAK_PREFIX: &str = "Đỉnh:";
 pub const SPARKLINE_TIME_START: &str = "-60s";
 pub const SPARKLINE_TIME_NOW: &str = "nay";

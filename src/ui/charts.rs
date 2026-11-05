@@ -61,18 +61,35 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
 
     // 2. Header metrics
-    let header_y = rect.top() + 7.0;
+    let header_y = rect.top() + 4.0;
 
-    // Title at top-left
-    painter.text(
-        Pos2::new(rect.left() + 9.0, header_y),
-        egui::Align2::LEFT_TOP,
-        cfg.title,
-        egui::FontId::proportional(FONT_SIZE_CAPTION),
+    // Current value at top-right
+    let current_font = egui::FontId::monospace(FONT_SIZE_BODY);
+    let current_galley = painter.layout_no_wrap(
+        cfg.current_label.to_string(),
+        current_font,
+        COLOR_FOREGROUND,
+    );
+    let current_w = current_galley.size().x;
+    let current_pos = Pos2::new(rect.right() - 8.0 - current_w, header_y);
+    painter.galley(current_pos, current_galley, COLOR_FOREGROUND);
+
+    // Title at top-left, dynamically constrained to prevent overlap with current readout
+    let caption_font = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let max_title_w = (current_pos.x - (rect.left() + 8.0) - 6.0).max(10.0);
+    let title_galley = painter.layout(
+        cfg.title.to_string(),
+        caption_font.clone(),
+        COLOR_MUTED_FOREGROUND,
+        max_title_w,
+    );
+    painter.galley(
+        Pos2::new(rect.left() + 8.0, header_y),
+        title_galley,
         COLOR_MUTED_FOREGROUND,
     );
 
-    // Peak metric in header (>= 12px caption, solid high-contrast muted foreground)
+    // Peak metric on its own line right under the title (Defect 2: no overlap at any width >= 760)
     let peak_val = values.iter().fold(0.0f32, |acc, &v| acc.max(v));
     let peak_str = format!(
         "{} {:.1}{}",
@@ -80,31 +97,20 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         peak_val,
         cfg.unit
     );
-    let title_offset_x = rect.left() + 95.0;
-    if rect.width() > 200.0 {
-        painter.text(
-            Pos2::new(title_offset_x, header_y),
-            egui::Align2::LEFT_TOP,
-            peak_str,
-            egui::FontId::proportional(FONT_SIZE_CAPTION),
-            COLOR_MUTED_FOREGROUND,
-        );
-    }
-
-    // Current value at top-right
-    painter.text(
-        Pos2::new(rect.right() - 9.0, header_y - 1.0),
-        egui::Align2::RIGHT_TOP,
-        cfg.current_label,
-        egui::FontId::monospace(FONT_SIZE_BODY),
-        COLOR_FOREGROUND,
+    let peak_y = header_y + 13.0;
+    let max_peak_w = (rect.width() - 16.0).max(10.0);
+    let peak_galley = painter.layout(peak_str, caption_font, COLOR_MUTED_FOREGROUND, max_peak_w);
+    painter.galley(
+        Pos2::new(rect.left() + 8.0, peak_y),
+        peak_galley,
+        COLOR_MUTED_FOREGROUND,
     );
 
     // 3. Graph Plot Area
-    let graph_top = rect.top() + 27.0;
-    let graph_bottom = rect.bottom() - 17.0;
-    let graph_left = rect.left() + 9.0;
-    let graph_right = rect.right() - 9.0;
+    let graph_top = rect.top() + 29.0;
+    let graph_bottom = rect.bottom() - 13.0;
+    let graph_left = rect.left() + 8.0;
+    let graph_right = rect.right() - 8.0;
 
     let graph_height = (graph_bottom - graph_top).max(10.0);
     let graph_width = (graph_right - graph_left).max(10.0);
@@ -129,7 +135,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
 
     // 4. Time axis captions ("-60s" … "nay") (>= 12px caption, solid high-contrast muted foreground)
-    let time_y = rect.bottom() - 3.0;
+    let time_y = rect.bottom() - 2.0;
     painter.text(
         Pos2::new(graph_left, time_y),
         egui::Align2::LEFT_BOTTOM,
@@ -260,6 +266,62 @@ mod tests {
                 (w0 - w2).abs() <= 2.0,
                 "Card width divergence ({w0} vs {w2}) must not exceed 2.0px"
             );
+        }
+    }
+    #[test]
+    fn test_sparkline_title_and_peak_on_separate_lines_no_overlap() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        // Test at minimum supported card width (window width 760 -> card width ~240px)
+        for &card_w in &[240.0, 320.0, 400.0] {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(card_w + 50.0, 200.0),
+                )),
+                ..Default::default()
+            };
+
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                let cfg = SparklineConfig {
+                    title: strings::SPARKLINE_DISK_TITLE,
+                    current_label: "997.5 MB/s",
+                    unit: " MB/s",
+                    min_val: 0.0,
+                    max_val: 1000.0,
+                    line_color: Color32::GREEN,
+                    size: Vec2::new(card_w, 68.0),
+                };
+                let values = [100.0, 500.0, 997.5];
+                sparkline(ui, cfg, &values);
+            });
+
+            // Inspect text galleys to verify title and peak Y positions do not collide
+            let mut text_rects = Vec::new();
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    text_rects.push((text_shape.galley.text().to_string(), text_shape.pos));
+                }
+            }
+
+            let title_entry = text_rects.iter().find(|(t, _)| t.contains("Đĩa I/O"));
+            let peak_entry = text_rects.iter().find(|(t, _)| t.contains("Đỉnh"));
+
+            assert!(title_entry.is_some(), "Title text should be rendered");
+            assert!(peak_entry.is_some(), "Peak text should be rendered");
+
+            let (_, title_pos) = title_entry.unwrap();
+            let (_, peak_pos) = peak_entry.unwrap();
+
+            // Peak must be on its own line below the title (vertical separation >= 10px)
+            assert!(
+                peak_pos.y >= title_pos.y + 10.0,
+                "Peak metric at y={} must be on its own line below title at y={}",
+                peak_pos.y,
+                title_pos.y
+            );
+            output.textures_delta.clear();
         }
     }
 }

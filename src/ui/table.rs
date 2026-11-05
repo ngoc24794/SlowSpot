@@ -63,7 +63,8 @@ pub fn render_cell<R>(
     ui.allocate_ui_with_layout(Vec2::new(width, 24.0), layout, |ui| {
         ui.set_min_size(Vec2::new(width, 24.0));
         ui.set_max_size(Vec2::new(width, 24.0));
-        ui.set_clip_rect(ui.max_rect());
+        let cell_clip = ui.clip_rect().intersect(ui.max_rect());
+        ui.set_clip_rect(cell_clip);
         add_contents(ui)
     })
 }
@@ -78,7 +79,7 @@ pub fn render_flat_header(
     active_col: SortColumn,
     active_dir: SortDirection,
 ) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 22.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 20.0), Sense::click());
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -162,7 +163,8 @@ pub fn render_process_row(
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
-    let p = ui.painter();
+    let row_clip = ui.clip_rect().intersect(rect);
+    let p = ui.painter().with_clip_rect(row_clip);
 
     // 1. Background styling: selection > hover > zebra alternating
     let bg_color = if is_selected {
@@ -200,6 +202,7 @@ pub fn render_process_row(
             .max_rect(rect)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
+    child_ui.set_clip_rect(row_clip);
     child_ui.spacing_mut().item_spacing.x = layout.spacing;
 
     // Column 0: Name (with lock icon if SystemCritical)
