@@ -30,6 +30,100 @@ pub struct SlowSpotApp {
     confirm_kill: Option<ScoredProcess>,
 }
 
+/// Calculated column widths for the process table ensuring consistent alignment.
+#[derive(Clone, Copy, Debug)]
+pub struct TableLayout {
+    pub name_width: f32,
+    pub pid_width: f32,
+    pub cpu_width: f32,
+    pub ram_width: f32,
+    pub disk_width: f32,
+    pub score_width: f32,
+    pub kind_width: f32,
+    pub spacing: f32,
+}
+
+impl TableLayout {
+    /// Computes column widths based on available width and horizontal item spacing.
+    pub fn compute(card_available: f32, spacing: f32) -> Self {
+        let pid_width = 55.0;
+        let cpu_width = 70.0;
+        let ram_width = 80.0;
+        let disk_width = 90.0;
+        let score_width = 75.0;
+        let kind_width = 80.0;
+
+        let fixed_total = pid_width + cpu_width + ram_width + disk_width + score_width + kind_width;
+        let total_spacing = 6.0 * spacing;
+        let inner_width = (card_available - 8.0).max(fixed_total + total_spacing + 80.0);
+        let name_width = (inner_width - fixed_total - total_spacing).max(80.0);
+
+        Self {
+            name_width,
+            pid_width,
+            cpu_width,
+            ram_width,
+            disk_width,
+            score_width,
+            kind_width,
+            spacing,
+        }
+    }
+}
+
+/// Allocates a table cell with fixed width and layout, clipping content to prevent overflow.
+fn render_cell<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    layout: egui::Layout,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    ui.allocate_ui_with_layout(Vec2::new(width, 20.0), layout, |ui| {
+        ui.set_min_size(Vec2::new(width, 20.0));
+        ui.set_max_size(Vec2::new(width, 20.0));
+        ui.set_clip_rect(ui.max_rect());
+        add_contents(ui)
+    })
+}
+
+enum HeaderAlign {
+    Left,
+    Center,
+    Right,
+}
+
+fn col_header_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    col: SortColumn,
+    width: f32,
+    align: HeaderAlign,
+    current_col: SortColumn,
+    current_dir: crate::ui::state::SortDirection,
+) -> bool {
+    let arrow = if current_col == col {
+        match current_dir {
+            crate::ui::state::SortDirection::Ascending => " ^",
+            crate::ui::state::SortDirection::Descending => " v",
+        }
+    } else {
+        ""
+    };
+    let text = format!("{label}{arrow}");
+    let color = if current_col == col {
+        COLOR_TEXT_PRIMARY
+    } else {
+        COLOR_TEXT_MUTED
+    };
+    let rich = RichText::new(text).color(color).size(12.0).strong();
+    let btn = match align {
+        HeaderAlign::Left => egui::Button::new("").left_text(rich).truncate(),
+        HeaderAlign::Right => egui::Button::new("").right_text(rich).truncate(),
+        HeaderAlign::Center => egui::Button::new(rich).truncate(),
+    };
+    ui.add_sized([width, 20.0], btn).clicked()
+}
+
 impl SlowSpotApp {
     /// Creates a new SlowSpot application instance.
     pub fn new(
@@ -442,12 +536,7 @@ impl SlowSpotApp {
             // Table Header with Sort Triggers
             let card_available = ui.available_width();
             let spacing = ui.spacing().item_spacing.x;
-            let other_cols_width = 60.0 + 75.0 + 85.0 + 95.0 + 85.0 + 80.0; // 480.0
-            let total_col_spacing = 6.0 * spacing;
-            // Both header and rows use inner_margin(Margin::symmetric(4, ...)) so row inner width is card_available - 8.0
-            let inner_row_width = (card_available - 8.0).max(other_cols_width + total_col_spacing);
-            let name_col_width =
-                (inner_row_width - other_cols_width - total_col_spacing).max(120.0);
+            let layout = TableLayout::compute(card_available, spacing);
 
             let header_frame = egui::Frame::new().inner_margin(Margin::symmetric(4, 0));
             header_frame.show(ui, |ui| {
@@ -455,55 +544,145 @@ impl SlowSpotApp {
                     let sort_col = self.state.sort_column;
                     let sort_dir = self.state.sort_direction;
 
-                    let arrow = |col: SortColumn| -> &str {
-                        if sort_col == col {
-                            match sort_dir {
-                                crate::ui::state::SortDirection::Ascending => " ^",
-                                crate::ui::state::SortDirection::Descending => " v",
+                    // Column 0: Name (Left aligned)
+                    render_cell(
+                        ui,
+                        layout.name_width,
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_NAME,
+                                SortColumn::Name,
+                                layout.name_width,
+                                HeaderAlign::Left,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Name);
                             }
-                        } else {
-                            ""
-                        }
-                    };
+                        },
+                    );
 
-                    let col_btn =
-                        |ui: &mut egui::Ui, label: &str, col: SortColumn, width: f32| -> bool {
-                            let text = format!("{label}{}", arrow(col));
-                            let color = if sort_col == col {
-                                COLOR_TEXT_PRIMARY
-                            } else {
-                                COLOR_TEXT_MUTED
-                            };
-                            ui.add_sized(
-                                [width, 20.0],
-                                egui::Button::new(
-                                    RichText::new(text).color(color).size(12.0).strong(),
-                                ),
-                            )
-                            .clicked()
-                        };
+                    // Column 1: PID (Right aligned)
+                    render_cell(
+                        ui,
+                        layout.pid_width,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_PID,
+                                SortColumn::Pid,
+                                layout.pid_width,
+                                HeaderAlign::Right,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Pid);
+                            }
+                        },
+                    );
 
-                    if col_btn(ui, strings::COL_NAME, SortColumn::Name, name_col_width) {
-                        self.state.set_sort(SortColumn::Name);
-                    }
-                    if col_btn(ui, strings::COL_PID, SortColumn::Pid, 60.0) {
-                        self.state.set_sort(SortColumn::Pid);
-                    }
-                    if col_btn(ui, strings::COL_CPU, SortColumn::Cpu, 75.0) {
-                        self.state.set_sort(SortColumn::Cpu);
-                    }
-                    if col_btn(ui, strings::COL_RAM, SortColumn::Memory, 85.0) {
-                        self.state.set_sort(SortColumn::Memory);
-                    }
-                    if col_btn(ui, strings::COL_DISK, SortColumn::Disk, 95.0) {
-                        self.state.set_sort(SortColumn::Disk);
-                    }
-                    if col_btn(ui, strings::COL_SCORE, SortColumn::Score, 85.0) {
-                        self.state.set_sort(SortColumn::Score);
-                    }
-                    if col_btn(ui, strings::COL_KIND, SortColumn::Kind, 80.0) {
-                        self.state.set_sort(SortColumn::Kind);
-                    }
+                    // Column 2: CPU % (Right aligned)
+                    render_cell(
+                        ui,
+                        layout.cpu_width,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_CPU,
+                                SortColumn::Cpu,
+                                layout.cpu_width,
+                                HeaderAlign::Right,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Cpu);
+                            }
+                        },
+                    );
+
+                    // Column 3: RAM (Right aligned)
+                    render_cell(
+                        ui,
+                        layout.ram_width,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_RAM,
+                                SortColumn::Memory,
+                                layout.ram_width,
+                                HeaderAlign::Right,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Memory);
+                            }
+                        },
+                    );
+
+                    // Column 4: Disk I/O (Right aligned)
+                    render_cell(
+                        ui,
+                        layout.disk_width,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_DISK,
+                                SortColumn::Disk,
+                                layout.disk_width,
+                                HeaderAlign::Right,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Disk);
+                            }
+                        },
+                    );
+
+                    // Column 5: Score (Centered)
+                    render_cell(
+                        ui,
+                        layout.score_width,
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_SCORE,
+                                SortColumn::Score,
+                                layout.score_width,
+                                HeaderAlign::Center,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Score);
+                            }
+                        },
+                    );
+
+                    // Column 6: Kind (Centered)
+                    render_cell(
+                        ui,
+                        layout.kind_width,
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            if col_header_button(
+                                ui,
+                                strings::COL_KIND,
+                                SortColumn::Kind,
+                                layout.kind_width,
+                                HeaderAlign::Center,
+                                sort_col,
+                                sort_dir,
+                            ) {
+                                self.state.set_sort(SortColumn::Kind);
+                            }
+                        },
+                    );
                 });
             });
 
@@ -540,9 +719,10 @@ impl SlowSpotApp {
                     let response = row_frame
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                // Name + lock icon if system critical
-                                ui.allocate_ui_with_layout(
-                                    Vec2::new(name_col_width, 18.0),
+                                // Column 0: Name + lock icon if system critical (truncated with ...)
+                                render_cell(
+                                    ui,
+                                    layout.name_width,
                                     egui::Layout::left_to_right(egui::Align::Center),
                                     |ui| {
                                         ui.spacing_mut().item_spacing.x = 4.0;
@@ -552,69 +732,95 @@ impl SlowSpotApp {
                                                 Color32::from_rgb(220, 140, 200),
                                             );
                                         }
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(&proc.record.name)
+                                                    .color(COLOR_TEXT_PRIMARY)
+                                                    .size(12.0),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(&proc.record.name);
+                                    },
+                                );
+
+                                // Column 1: PID (Right-aligned)
+                                render_cell(
+                                    ui,
+                                    layout.pid_width,
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
                                         ui.label(
-                                            RichText::new(&proc.record.name)
+                                            RichText::new(pid.to_string())
+                                                .color(COLOR_TEXT_MUTED)
+                                                .size(12.0),
+                                        );
+                                    },
+                                );
+
+                                // Column 2: CPU % (Right-aligned)
+                                render_cell(
+                                    ui,
+                                    layout.cpu_width,
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(format_percent(proc.record.cpu_percent))
                                                 .color(COLOR_TEXT_PRIMARY)
                                                 .size(12.0),
                                         );
                                     },
                                 );
 
-                                // PID
-                                ui.add_sized(
-                                    [60.0, 18.0],
-                                    egui::Label::new(
-                                        RichText::new(pid.to_string())
-                                            .color(COLOR_TEXT_MUTED)
-                                            .size(12.0),
-                                    ),
+                                // Column 3: RAM (Right-aligned)
+                                render_cell(
+                                    ui,
+                                    layout.ram_width,
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(format_bytes(proc.record.memory_bytes))
+                                                .color(COLOR_TEXT_PRIMARY)
+                                                .size(12.0),
+                                        );
+                                    },
                                 );
 
-                                // CPU %
-                                ui.add_sized(
-                                    [75.0, 18.0],
-                                    egui::Label::new(
-                                        RichText::new(format_percent(proc.record.cpu_percent))
-                                            .color(COLOR_TEXT_PRIMARY)
-                                            .size(12.0),
-                                    ),
-                                );
-
-                                // RAM
-                                ui.add_sized(
-                                    [85.0, 18.0],
-                                    egui::Label::new(
-                                        RichText::new(format_bytes(proc.record.memory_bytes))
-                                            .color(COLOR_TEXT_PRIMARY)
-                                            .size(12.0),
-                                    ),
-                                );
-
-                                // Disk I/O
+                                // Column 4: Disk I/O (Right-aligned)
                                 let total_disk =
                                     proc.record.disk_read_bps + proc.record.disk_write_bps;
-                                ui.add_sized(
-                                    [95.0, 18.0],
-                                    egui::Label::new(
-                                        RichText::new(format_bps(total_disk))
-                                            .color(COLOR_TEXT_PRIMARY)
-                                            .size(12.0),
-                                    ),
+                                render_cell(
+                                    ui,
+                                    layout.disk_width,
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(format_bps(total_disk))
+                                                .color(COLOR_TEXT_PRIMARY)
+                                                .size(12.0),
+                                        );
+                                    },
                                 );
 
-                                // Score bar
-                                ui.allocate_ui_with_layout(
-                                    Vec2::new(85.0, 18.0),
-                                    egui::Layout::left_to_right(egui::Align::Center),
+                                // Column 5: Score bar (Fixed width, centered)
+                                render_cell(
+                                    ui,
+                                    layout.score_width,
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
                                     |ui| {
                                         widgets::score_bar(ui, proc.score);
                                     },
                                 );
 
-                                // Kind badge
-                                ui.allocate_ui_with_layout(
-                                    Vec2::new(80.0, 18.0),
-                                    egui::Layout::left_to_right(egui::Align::Center),
+                                // Column 6: Kind badge (Fixed width, centered)
+                                render_cell(
+                                    ui,
+                                    layout.kind_width,
+                                    egui::Layout::centered_and_justified(
+                                        egui::Direction::LeftToRight,
+                                    ),
                                     |ui| {
                                         widgets::process_kind_badge(ui, proc.kind);
                                     },
@@ -830,6 +1036,9 @@ impl SlowSpotApp {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::ui::widgets;
+    use eframe::egui::{self, Color32};
     /// Pure computation layout verification across supported window dimensions.
     #[test]
     fn test_sparkline_layout_distribution_no_overflow() {
@@ -858,15 +1067,19 @@ mod tests {
     fn test_process_table_columns_fill_exact_width_without_overflow() {
         let test_card_widths = [712.0f32, 952.0, 1176.0, 1872.0];
         let spacing = 8.0f32;
-        let other_cols_width = 60.0 + 75.0 + 85.0 + 95.0 + 85.0 + 80.0; // 480.0
-        let total_col_spacing = 6.0 * spacing; // 48.0
 
         for &card_available in &test_card_widths {
+            let layout = TableLayout::compute(card_available, spacing);
+            let other_cols_width = layout.pid_width
+                + layout.cpu_width
+                + layout.ram_width
+                + layout.disk_width
+                + layout.score_width
+                + layout.kind_width;
+            let total_col_spacing = 6.0 * spacing;
             let inner_row_width = (card_available - 8.0).max(other_cols_width + total_col_spacing);
-            let name_col_width =
-                (inner_row_width - other_cols_width - total_col_spacing).max(120.0);
 
-            let total_row_consumed = name_col_width + other_cols_width + total_col_spacing;
+            let total_row_consumed = layout.name_width + other_cols_width + total_col_spacing;
             assert!(
                 (total_row_consumed - inner_row_width).abs() < 0.001,
                 "Table columns width {total_row_consumed} must match inner row width {inner_row_width}"
@@ -876,9 +1089,269 @@ mod tests {
                 "Row must not exceed card available width"
             );
             assert!(
-                name_col_width >= 120.0,
+                layout.name_width >= 80.0,
                 "Name column must maintain minimum width"
             );
         }
+    }
+
+    #[test]
+    fn test_table_cell_exact_width_and_alignment() {
+        let ctx = egui::Context::default();
+        let card_available = 712.0;
+        let spacing = 8.0;
+        let layout = TableLayout::compute(card_available, spacing);
+
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            // 1. Render Header Row
+            let mut header_x_coords = Vec::new();
+            ui.horizontal(|ui| {
+                let r0 = render_cell(
+                    ui,
+                    layout.name_width,
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.label("Name");
+                    },
+                );
+                header_x_coords.push(r0.response.rect.min.x);
+
+                let r1 = render_cell(
+                    ui,
+                    layout.pid_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("PID");
+                    },
+                );
+                header_x_coords.push(r1.response.rect.min.x);
+
+                let r2 = render_cell(
+                    ui,
+                    layout.cpu_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("CPU");
+                    },
+                );
+                header_x_coords.push(r2.response.rect.min.x);
+
+                let r3 = render_cell(
+                    ui,
+                    layout.ram_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("RAM");
+                    },
+                );
+                header_x_coords.push(r3.response.rect.min.x);
+
+                let r4 = render_cell(
+                    ui,
+                    layout.disk_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("Disk");
+                    },
+                );
+                header_x_coords.push(r4.response.rect.min.x);
+
+                let r5 = render_cell(
+                    ui,
+                    layout.score_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        ui.label("Score");
+                    },
+                );
+                header_x_coords.push(r5.response.rect.min.x);
+
+                let r6 = render_cell(
+                    ui,
+                    layout.kind_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        ui.label("Kind");
+                    },
+                );
+                header_x_coords.push(r6.response.rect.min.x);
+            });
+
+            // 2. Render Data Row with SystemCritical lock + long truncated name
+            let mut row_x_coords = Vec::new();
+            ui.horizontal(|ui| {
+                let r0 = render_cell(
+                    ui,
+                    layout.name_width,
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        widgets::draw_lock_icon(ui, Color32::RED);
+                        ui.add(
+                            egui::Label::new(
+                                "VeryLongProcessNameThatExceedsTheColumnWidthBoundaries.exe",
+                            )
+                            .truncate(),
+                        );
+                    },
+                );
+                row_x_coords.push(r0.response.rect.min.x);
+
+                let r1 = render_cell(
+                    ui,
+                    layout.pid_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("4");
+                    },
+                );
+                row_x_coords.push(r1.response.rect.min.x);
+
+                let r2 = render_cell(
+                    ui,
+                    layout.cpu_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("99.9%");
+                    },
+                );
+                row_x_coords.push(r2.response.rect.min.x);
+
+                let r3 = render_cell(
+                    ui,
+                    layout.ram_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("1024.0 MB");
+                    },
+                );
+                row_x_coords.push(r3.response.rect.min.x);
+
+                let r4 = render_cell(
+                    ui,
+                    layout.disk_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("12.5 MB/s");
+                    },
+                );
+                row_x_coords.push(r4.response.rect.min.x);
+
+                let r5 = render_cell(
+                    ui,
+                    layout.score_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        widgets::score_bar(ui, 90.0);
+                    },
+                );
+                row_x_coords.push(r5.response.rect.min.x);
+
+                let r6 = render_cell(
+                    ui,
+                    layout.kind_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        widgets::process_kind_badge(ui, crate::model::ProcessKind::SystemCritical);
+                    },
+                );
+                row_x_coords.push(r6.response.rect.min.x);
+            });
+
+            // 3. Render Another Row with short name
+            let mut row2_x_coords = Vec::new();
+            ui.horizontal(|ui| {
+                let r0 = render_cell(
+                    ui,
+                    layout.name_width,
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.add(egui::Label::new("cmd").truncate());
+                    },
+                );
+                row2_x_coords.push(r0.response.rect.min.x);
+
+                let r1 = render_cell(
+                    ui,
+                    layout.pid_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("12345");
+                    },
+                );
+                row2_x_coords.push(r1.response.rect.min.x);
+
+                let r2 = render_cell(
+                    ui,
+                    layout.cpu_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("0.0%");
+                    },
+                );
+                row2_x_coords.push(r2.response.rect.min.x);
+
+                let r3 = render_cell(
+                    ui,
+                    layout.ram_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("12.0 MB");
+                    },
+                );
+                row2_x_coords.push(r3.response.rect.min.x);
+
+                let r4 = render_cell(
+                    ui,
+                    layout.disk_width,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        ui.label("0 B/s");
+                    },
+                );
+                row2_x_coords.push(r4.response.rect.min.x);
+
+                let r5 = render_cell(
+                    ui,
+                    layout.score_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        widgets::score_bar(ui, 10.0);
+                    },
+                );
+                row2_x_coords.push(r5.response.rect.min.x);
+
+                let r6 = render_cell(
+                    ui,
+                    layout.kind_width,
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        widgets::process_kind_badge(ui, crate::model::ProcessKind::UserApp);
+                    },
+                );
+                row2_x_coords.push(r6.response.rect.min.x);
+            });
+
+            // Every column in row 1, row 2, and header must start at the exact same relative X offset
+            assert_eq!(header_x_coords.len(), 7);
+            assert_eq!(row_x_coords.len(), 7);
+            assert_eq!(row2_x_coords.len(), 7);
+
+            for i in 0..7 {
+                let h_offset = header_x_coords[i] - header_x_coords[0];
+                let r1_offset = row_x_coords[i] - row_x_coords[0];
+                let r2_offset = row2_x_coords[i] - row2_x_coords[0];
+
+                assert!(
+                    (h_offset - r1_offset).abs() < 0.001,
+                    "Column {i} offset in row 1 ({r1_offset}) must match header ({h_offset})"
+                );
+                assert!(
+                    (h_offset - r2_offset).abs() < 0.001,
+                    "Column {i} offset in row 2 ({r2_offset}) must match header ({h_offset})"
+                );
+            }
+        });
+        output.textures_delta.clear();
     }
 }
