@@ -33,6 +33,10 @@ pub const HERO_TITLE: &str = "THỦ PHẠM CHÍNH";
 pub const HERO_NO_CULPRIT: &str = "Máy đang chạy mượt, không có thủ phạm";
 pub const HERO_NO_CULPRIT_SUB: &str =
     "Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.";
+pub const HERO_PRESSURE_OVERLOADED: &str = "Hệ thống đang quá tải";
+pub const HERO_PRESSURE_STRAINED: &str = "Hệ thống đang chịu tải cao";
+pub const HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB: &str =
+    "Chưa xác định được một thủ phạm rõ ràng, nhiều tiến trình cùng chiếm tài nguyên.";
 pub const HERO_SCORE_LABEL: &str = "Điểm thủ phạm";
 pub const HERO_PROTECTED_BADGE: &str = "Bảo vệ";
 pub const HERO_REASON_PREFIX: &str = "Nguyên nhân:";
@@ -44,9 +48,9 @@ pub const BTN_OPEN_LOCATION: &str = "Mở thư mục";
 pub const BTN_IGNORE_CULPRIT: &str = "Bỏ qua thủ phạm này";
 
 // Sparklines
-pub const SPARKLINE_CPU_TITLE: &str = "CPU (60 giây)";
-pub const SPARKLINE_RAM_TITLE: &str = "RAM (60 giây)";
-pub const SPARKLINE_DISK_TITLE: &str = "Đĩa I/O (60 giây)";
+pub const SPARKLINE_CPU_TITLE: &str = "CPU (60s)";
+pub const SPARKLINE_RAM_TITLE: &str = "RAM (60s)";
+pub const SPARKLINE_DISK_TITLE: &str = "Đĩa I/O (60s)";
 pub const SPARKLINE_PEAK_PREFIX: &str = "Đỉnh:";
 pub const SPARKLINE_TIME_START: &str = "-60s";
 pub const SPARKLINE_TIME_NOW: &str = "nay";
@@ -138,6 +142,9 @@ mod tests {
         HERO_TITLE,
         HERO_NO_CULPRIT,
         HERO_NO_CULPRIT_SUB,
+        HERO_PRESSURE_OVERLOADED,
+        HERO_PRESSURE_STRAINED,
+        HERO_PRESSURE_NO_SINGLE_CULPRIT_SUB,
         HERO_SCORE_LABEL,
         HERO_PROTECTED_BADGE,
         HERO_REASON_PREFIX,
