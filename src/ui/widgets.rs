@@ -1,209 +1,314 @@
 //! Custom reusable GUI widgets and drawing helpers.
 //!
-//! Renders 60-second resource sparklines using `egui::Painter`, score gauges,
-//! and status badges according to the application visual theme.
+//! Renders geometric shapes (WCAG compliant), score bars with separate labels,
+//! status badges, icon painters, and mini metric chips.
 
 use eframe::egui::{
     self, Color32, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
 };
 
 use crate::model::{ProcessKind, Severity};
-use crate::ui::strings;
-use crate::ui::theme::{
-    COLOR_BG_INPUT, COLOR_CULPRIT, COLOR_INFO, COLOR_NORMAL, COLOR_SUSPICIOUS, COLOR_TEXT_MUTED,
-    COLOR_TEXT_PRIMARY,
+use crate::ui::palette::{
+    severity_indicator, PressureShape, SeverityShape, COLOR_BORDER_SUBTLE, COLOR_DESTRUCTIVE,
+    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_PROTECTED,
+    COLOR_WARNING, FONT_SIZE_CAPTION, RADIUS_SM,
 };
+use crate::ui::strings;
 
-/// Configuration parameters for rendering a sparkline graph.
-#[derive(Debug, Clone, Copy)]
-pub struct SparklineConfig<'a> {
-    /// Metric title shown at top-left.
-    pub title: &'a str,
-    /// Current metric reading shown at top-right.
-    pub current_label: &'a str,
-    /// Minimum expected value on the Y axis.
-    pub min_val: f32,
-    /// Maximum expected value on the Y axis.
-    pub max_val: f32,
-    /// Plot line stroke color.
-    pub line_color: Color32,
-    /// Allocated widget size.
-    pub size: Vec2,
-}
-
-/// Paints a 60-second resource sparkline graph using `egui::Painter` and `egui::Shape::line`.
+/// Renders a score progress bar with the numeric value cleanly outside the track.
 ///
-/// Designed to avoid heavy plotting dependencies like `egui_plot`.
-pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Response {
-    let (rect, response) = ui.allocate_exact_size(cfg.size, Sense::hover());
-    if !ui.is_rect_visible(rect) {
-        return response;
-    }
-
-    let painter = ui.painter();
-
-    // 1. Background container
-    painter.rect_filled(rect, 6.0, COLOR_BG_INPUT);
-    painter.rect_stroke(
-        rect,
-        6.0,
-        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
-        StrokeKind::Inside,
-    );
-
-    // 2. Header text: Title at top-left, current metric at top-right
-    let header_y = rect.top() + 6.0;
-    painter.text(
-        Pos2::new(rect.left() + 8.0, header_y),
-        egui::Align2::LEFT_TOP,
-        cfg.title,
-        egui::FontId::proportional(12.0),
-        COLOR_TEXT_MUTED,
-    );
-
-    painter.text(
-        Pos2::new(rect.right() - 8.0, header_y),
-        egui::Align2::RIGHT_TOP,
-        cfg.current_label,
-        egui::FontId::proportional(13.0),
-        COLOR_TEXT_PRIMARY,
-    );
-
-    // 3. Graph area
-    let graph_top = rect.top() + 26.0;
-    let graph_bottom = rect.bottom() - 6.0;
-    let graph_left = rect.left() + 8.0;
-    let graph_right = rect.right() - 8.0;
-
-    let graph_height = (graph_bottom - graph_top).max(10.0);
-    let graph_width = (graph_right - graph_left).max(10.0);
-
-    // Draw baseline
-    painter.line_segment(
-        [
-            Pos2::new(graph_left, graph_bottom),
-            Pos2::new(graph_right, graph_bottom),
-        ],
-        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 15)),
-    );
-
-    // Draw 50% guideline
-    let mid_y = graph_top + graph_height * 0.5;
-    painter.line_segment(
-        [Pos2::new(graph_left, mid_y), Pos2::new(graph_right, mid_y)],
-        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10)),
-    );
-
-    // 4. Plot points
-    if !values.is_empty() {
-        let max_range = (cfg.max_val - cfg.min_val).max(0.001);
-        let n = values.len();
-
-        let points: Vec<Pos2> = values
-            .iter()
-            .enumerate()
-            .map(|(idx, &v)| {
-                let x = if n > 1 {
-                    graph_left + (idx as f32 / (n - 1) as f32) * graph_width
-                } else {
-                    graph_right
-                };
-                let norm = ((v - cfg.min_val) / max_range).clamp(0.0, 1.0);
-                let y = graph_bottom - norm * graph_height;
-                Pos2::new(x, y)
-            })
-            .collect();
-
-        if points.len() >= 2 {
-            painter.add(Shape::line(points, Stroke::new(1.8, cfg.line_color)));
-        } else if points.len() == 1 {
-            painter.circle_filled(points[0], 2.5, cfg.line_color);
-        }
-    }
-
-    response
-}
-
-/// Renders a compact colored score progress bar with numeric label (0 to 100).
+/// Prevents illegible overlapping text on small gauges.
 pub fn score_bar(ui: &mut Ui, score: f32) {
     let desired_size = Vec2::new(65.0, 14.0);
     let (rect, _) = ui.allocate_exact_size(desired_size, Sense::hover());
-
     let painter = ui.painter();
 
-    // Background track
-    painter.rect_filled(rect, 3.0, Color32::from_rgb(35, 39, 50));
-
     let color = if score >= 70.0 {
-        COLOR_CULPRIT
+        COLOR_DESTRUCTIVE
     } else if score >= 40.0 {
-        COLOR_SUSPICIOUS
+        COLOR_WARNING
     } else {
-        COLOR_NORMAL
+        crate::ui::palette::COLOR_ACCENT_OK
     };
+
+    // Split horizontally: mini track (38px) + gap (5px) + score text (22px)
+    let bar_width = 38.0;
+    let bar_height = 5.0;
+    let bar_y = rect.center().y - (bar_height / 2.0);
+
+    let track_rect = Rect::from_min_size(
+        Pos2::new(rect.left(), bar_y),
+        Vec2::new(bar_width, bar_height),
+    );
+
+    // Background track
+    painter.rect_filled(track_rect, 2.5, COLOR_MUTED);
+    painter.rect_stroke(
+        track_rect,
+        2.5,
+        Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+        StrokeKind::Inside,
+    );
 
     // Filled portion
     let fill_ratio = (score / 100.0).clamp(0.0, 1.0);
-    let filled_rect = Rect::from_min_size(
-        rect.min,
-        Vec2::new(rect.width() * fill_ratio, rect.height()),
-    );
-    painter.rect_filled(filled_rect, 3.0, color);
+    if fill_ratio > 0.0 {
+        let filled_width = (bar_width * fill_ratio).max(3.0);
+        let filled_rect = Rect::from_min_size(
+            track_rect.min,
+            Vec2::new(filled_width.min(bar_width), bar_height),
+        );
+        painter.rect_filled(filled_rect, 2.5, color);
+    }
 
-    // Text label
+    // Number text aligned to the right, outside the bar
+    let text_pos = Pos2::new(rect.right(), rect.center().y);
     painter.text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
+        text_pos,
+        egui::Align2::RIGHT_CENTER,
         format!("{:.0}", score),
-        egui::FontId::proportional(10.0),
-        Color32::WHITE,
+        egui::FontId::monospace(FONT_SIZE_CAPTION),
+        COLOR_FOREGROUND,
     );
 }
 
-/// Renders a badge indicating process severity (Thủ phạm / Đáng ngờ / Bình thường).
+/// Renders a badge indicating process severity with shape + text.
 pub fn severity_badge(ui: &mut Ui, severity: Severity) {
-    let (text, bg_color, fg_color) = match severity {
-        Severity::Culprit => (
-            strings::SEVERITY_CULPRIT,
-            Color32::from_rgb(90, 25, 25),
-            COLOR_CULPRIT,
-        ),
-        Severity::Suspicious => (
-            strings::SEVERITY_SUSPICIOUS,
-            Color32::from_rgb(85, 60, 20),
-            COLOR_SUSPICIOUS,
-        ),
-        Severity::Normal => (
-            strings::SEVERITY_NORMAL,
-            Color32::from_rgb(25, 65, 35),
-            COLOR_NORMAL,
-        ),
-    };
+    let (text, shape, color) = severity_indicator(severity);
+    let bg_color = color.gamma_multiply(0.18);
 
-    render_badge(ui, text, bg_color, fg_color);
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id, color);
+    let size = Vec2::new(galley.size().x + 22.0, 20.0);
+
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+
+    // Background pill
+    painter.rect_filled(rect, RADIUS_SM, bg_color);
+    painter.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, color.gamma_multiply(0.4)),
+        StrokeKind::Inside,
+    );
+
+    // Shape icon on left
+    let shape_center = Pos2::new(rect.left() + 9.0, rect.center().y);
+    draw_severity_shape_at(painter, shape, shape_center, 8.0, color);
+
+    // Text label
+    painter.galley(
+        Pos2::new(rect.left() + 17.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
 }
 
 /// Renders a badge indicating process kind (Ứng dụng / Dịch vụ nền / Hệ thống).
 pub fn process_kind_badge(ui: &mut Ui, kind: ProcessKind) {
-    let (text, bg_color, fg_color) = match kind {
+    let (text, bg_color, fg_color, has_lock) = match kind {
         ProcessKind::UserApp => (
             strings::KIND_USER_APP,
-            Color32::from_rgb(25, 45, 65),
+            COLOR_INFO.gamma_multiply(0.18),
             COLOR_INFO,
+            false,
         ),
         ProcessKind::BackgroundService => (
             strings::KIND_BACKGROUND,
-            Color32::from_rgb(45, 50, 60),
-            COLOR_TEXT_MUTED,
+            COLOR_MUTED,
+            COLOR_MUTED_FOREGROUND,
+            false,
         ),
         ProcessKind::SystemCritical => (
             strings::KIND_SYSTEM_CRITICAL,
-            Color32::from_rgb(60, 30, 50),
-            Color32::from_rgb(220, 140, 200),
+            COLOR_PROTECTED.gamma_multiply(0.18),
+            COLOR_PROTECTED,
+            true,
         ),
     };
 
-    render_badge(ui, text, bg_color, fg_color);
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id, fg_color);
+    let extra_x = if has_lock { 22.0 } else { 12.0 };
+    let size = Vec2::new(galley.size().x + extra_x, 20.0);
+
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, RADIUS_SM, bg_color);
+    painter.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, fg_color.gamma_multiply(0.35)),
+        StrokeKind::Inside,
+    );
+
+    if has_lock {
+        let lock_rect = Rect::from_center_size(
+            Pos2::new(rect.left() + 9.0, rect.center().y),
+            Vec2::splat(11.0),
+        );
+        paint_lock_icon(painter, lock_rect, fg_color);
+        painter.galley(
+            Pos2::new(rect.left() + 17.0, rect.center().y - galley.size().y / 2.0),
+            galley,
+            fg_color,
+        );
+    } else {
+        painter.galley(
+            Pos2::new(rect.left() + 6.0, rect.center().y - galley.size().y / 2.0),
+            galley,
+            fg_color,
+        );
+    }
+}
+
+/// Paints a geometric severity shape using Painter primitives.
+fn draw_severity_shape_at(
+    p: &egui::Painter,
+    shape: SeverityShape,
+    center: Pos2,
+    size: f32,
+    color: Color32,
+) {
+    let half = size / 2.0;
+    match shape {
+        SeverityShape::Circle => {
+            p.circle_filled(center, half, color);
+        }
+        SeverityShape::Triangle => {
+            let top = Pos2::new(center.x, center.y - half);
+            let left = Pos2::new(center.x - half * 1.15, center.y + half * 0.9);
+            let right = Pos2::new(center.x + half * 1.15, center.y + half * 0.9);
+            p.add(Shape::convex_polygon(
+                vec![top, right, left],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        SeverityShape::Diamond => {
+            let top = Pos2::new(center.x, center.y - half * 1.1);
+            let right = Pos2::new(center.x + half * 1.1, center.y);
+            let bottom = Pos2::new(center.x, center.y + half * 1.1);
+            let left = Pos2::new(center.x - half * 1.1, center.y);
+            p.add(Shape::convex_polygon(
+                vec![top, right, bottom, left],
+                color,
+                Stroke::NONE,
+            ));
+        }
+    }
+}
+
+/// Paints a system pressure shape (Circle, Triangle, Octagon).
+pub fn draw_pressure_shape_indicator(
+    ui: &mut Ui,
+    shape: PressureShape,
+    color: Color32,
+    size: f32,
+) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let center = rect.center();
+        let half = size / 2.0;
+        match shape {
+            PressureShape::Circle => {
+                p.circle_filled(center, half * 0.85, color);
+            }
+            PressureShape::Triangle => {
+                let top = Pos2::new(center.x, center.y - half);
+                let left = Pos2::new(center.x - half, center.y + half);
+                let right = Pos2::new(center.x + half, center.y + half);
+                p.add(Shape::convex_polygon(
+                    vec![top, right, left],
+                    color,
+                    Stroke::NONE,
+                ));
+            }
+            PressureShape::Octagon => {
+                let d1 = half;
+                let d2 = half * 0.414;
+                let points = vec![
+                    Pos2::new(center.x - d2, center.y - d1),
+                    Pos2::new(center.x + d2, center.y - d1),
+                    Pos2::new(center.x + d1, center.y - d2),
+                    Pos2::new(center.x + d1, center.y + d2),
+                    Pos2::new(center.x + d2, center.y + d1),
+                    Pos2::new(center.x - d2, center.y + d1),
+                    Pos2::new(center.x - d1, center.y + d2),
+                    Pos2::new(center.x - d1, center.y - d2),
+                ];
+                p.add(Shape::convex_polygon(points, color, Stroke::NONE));
+            }
+        }
+    }
+    resp
+}
+
+/// Renders a compact chip for system resource status (CPU/RAM/Disk) with a mini progress bar.
+pub fn mini_metric_chip(
+    ui: &mut Ui,
+    label: &str,
+    val_str: &str,
+    pct: f32,
+    color: Color32,
+) -> Response {
+    let desired_size = Vec2::new(138.0, 26.0);
+    let (rect, resp) = ui.allocate_exact_size(desired_size, Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+
+    let p = ui.painter();
+    p.rect_filled(rect, RADIUS_SM, COLOR_MUTED);
+    p.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, COLOR_BORDER_SUBTLE),
+        StrokeKind::Inside,
+    );
+
+    // Left label (CPU/RAM/Đĩa)
+    p.text(
+        Pos2::new(rect.left() + 7.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(FONT_SIZE_CAPTION),
+        COLOR_MUTED_FOREGROUND,
+    );
+
+    // Right value (e.g. 45% or 12.5 MB/s)
+    p.text(
+        Pos2::new(rect.right() - 7.0, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        val_str,
+        egui::FontId::monospace(FONT_SIZE_CAPTION),
+        COLOR_FOREGROUND,
+    );
+
+    // Mini bar in the middle
+    let bar_left = rect.left() + 38.0;
+    let bar_right = rect.right() - 56.0;
+    let bar_w = (bar_right - bar_left).max(20.0);
+    let bar_h = 4.0;
+    let bar_y = rect.center().y - (bar_h / 2.0);
+
+    let track = Rect::from_min_size(Pos2::new(bar_left, bar_y), Vec2::new(bar_w, bar_h));
+    p.rect_filled(track, 2.0, Color32::from_rgb(22, 28, 40));
+
+    let fill_ratio = (pct / 100.0).clamp(0.0, 1.0);
+    if fill_ratio > 0.0 {
+        let filled = Rect::from_min_size(track.min, Vec2::new(bar_w * fill_ratio, bar_h));
+        p.rect_filled(filled, 2.0, color);
+    }
+
+    resp
 }
 
 /// Renders a crisp checkmark icon using `egui::Painter`.
@@ -266,31 +371,77 @@ pub fn draw_warning_icon(ui: &mut Ui, color: Color32, size: f32) -> Response {
 pub fn draw_lock_icon(ui: &mut Ui, color: Color32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(14.0, 14.0), Sense::hover());
     if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        // Shackle (upper arch)
-        let shackle = Rect::from_min_size(
-            Pos2::new(rect.left() + 3.0, rect.top() + 1.0),
-            Vec2::new(8.0, 6.0),
-        );
-        p.rect_stroke(shackle, 4.0, Stroke::new(1.4, color), StrokeKind::Inside);
-        // Lock body (lower block)
-        let body = Rect::from_min_size(
-            Pos2::new(rect.left() + 1.5, rect.top() + 5.5),
-            Vec2::new(11.0, 7.5),
-        );
-        p.rect_filled(body, 1.5, color);
+        paint_lock_icon(ui.painter(), rect, color);
     }
     resp
 }
 
-fn render_badge(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) {
-    let font_id = egui::FontId::proportional(11.0);
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font_id, fg);
-    let size = galley.size() + Vec2::new(10.0, 4.0);
+fn paint_lock_icon(p: &egui::Painter, rect: Rect, color: Color32) {
+    let shackle = Rect::from_min_size(
+        Pos2::new(rect.left() + 3.0, rect.top() + 1.0),
+        Vec2::new(8.0, 6.0),
+    );
+    p.rect_stroke(shackle, 4.0, Stroke::new(1.4, color), StrokeKind::Inside);
+    let body = Rect::from_min_size(
+        Pos2::new(rect.left() + 1.5, rect.top() + 5.5),
+        Vec2::new(11.0, 7.5),
+    );
+    p.rect_filled(body, 1.5, color);
+}
 
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    let painter = ui.painter();
+/// Renders a pause icon (two vertical bars) using `egui::Painter`.
+pub fn draw_pause_icon(ui: &mut Ui, color: Color32, size: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let bar_w = (size * 0.22).max(2.0);
+        let bar_h = size * 0.65;
+        let y = rect.center().y - (bar_h / 2.0);
 
-    painter.rect_filled(rect, 4.0, bg);
-    painter.galley(rect.min + Vec2::new(5.0, 2.0), galley, fg);
+        let left_bar = Rect::from_min_size(
+            Pos2::new(rect.center().x - bar_w * 1.3, y),
+            Vec2::new(bar_w, bar_h),
+        );
+        let right_bar = Rect::from_min_size(
+            Pos2::new(rect.center().x + bar_w * 0.3, y),
+            Vec2::new(bar_w, bar_h),
+        );
+
+        p.rect_filled(left_bar, 1.0, color);
+        p.rect_filled(right_bar, 1.0, color);
+    }
+    resp
+}
+
+/// Renders a sharp sort indicator arrow (pointing up for Ascending, down for Descending).
+pub fn draw_sort_arrow(ui: &mut Ui, ascending: bool, color: Color32) -> Response {
+    let size = 9.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(size, size), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let p = ui.painter();
+        let center = rect.center();
+        let h = size * 0.45;
+        let w = size * 0.45;
+
+        if ascending {
+            let top = Pos2::new(center.x, center.y - h);
+            let left = Pos2::new(center.x - w, center.y + h);
+            let right = Pos2::new(center.x + w, center.y + h);
+            p.add(Shape::convex_polygon(
+                vec![top, right, left],
+                color,
+                Stroke::NONE,
+            ));
+        } else {
+            let bottom = Pos2::new(center.x, center.y + h);
+            let left = Pos2::new(center.x - w, center.y - h);
+            let right = Pos2::new(center.x + w, center.y - h);
+            p.add(Shape::convex_polygon(
+                vec![bottom, left, right],
+                color,
+                Stroke::NONE,
+            ));
+        }
+    }
+    resp
 }

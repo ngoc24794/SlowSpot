@@ -94,6 +94,12 @@ pub struct ViewState {
     pub cooldown_until: Option<Instant>,
     /// Tracks whether the previous system state was under stress (had culprits or strained pressure).
     pub was_under_stress: bool,
+    /// Whether real-time display updates are currently frozen (paused) by the user.
+    pub is_paused: bool,
+    /// Pending snapshot received while display was paused, to be ingested upon resume.
+    pub paused_snapshot: Option<SystemSnapshot>,
+    /// Currently selected process PID for details and keyboard navigation.
+    pub selected_pid: Option<u32>,
 }
 
 impl Default for ViewState {
@@ -118,6 +124,9 @@ impl ViewState {
             toast: None,
             cooldown_until: None,
             was_under_stress: false,
+            is_paused: false,
+            paused_snapshot: None,
+            selected_pid: None,
         }
     }
 
@@ -132,6 +141,12 @@ impl ViewState {
     /// 3. A full re-sort only occurs every `N=3` snapshots, or immediately when the user
     ///    changes sort column / direction.
     pub fn push_snapshot(&mut self, snapshot: SystemSnapshot, now: Instant) {
+        // If display is frozen, store incoming snapshot in buffer and return immediately
+        if self.is_paused {
+            self.paused_snapshot = Some(snapshot);
+            return;
+        }
+
         // 1. Record rolling history point (capped at 60)
         let mem_pct = if snapshot.totals.memory_total_bytes > 0 {
             (snapshot.totals.memory_used_bytes as f32 / snapshot.totals.memory_total_bytes as f32)
@@ -213,6 +228,70 @@ impl ViewState {
             .retain(|pid, _| live_pids.contains(pid));
 
         self.latest_snapshot = Some(snapshot);
+    }
+
+    /// Toggles between live real-time updates and frozen display mode.
+    pub fn toggle_pause(&mut self, now: Instant) {
+        self.is_paused = !self.is_paused;
+        if !self.is_paused {
+            if let Some(snap) = self.paused_snapshot.take() {
+                self.push_snapshot(snap, now);
+            }
+        }
+    }
+
+    /// Sets pause state directly.
+    pub fn set_paused(&mut self, paused: bool, now: Instant) {
+        if self.is_paused != paused {
+            self.toggle_pause(now);
+        }
+    }
+
+    /// Selects the specified process PID.
+    pub fn select_pid(&mut self, pid: Option<u32>) {
+        self.selected_pid = pid;
+    }
+
+    /// Selects the next process in the filtered list (navigating Down with arrow keys).
+    pub fn select_next_process(&mut self) {
+        let procs = self.filtered_processes();
+        if procs.is_empty() {
+            self.selected_pid = None;
+            return;
+        }
+
+        let next_pid = match self.selected_pid {
+            None => procs[0].record.pid,
+            Some(pid) => match procs.iter().position(|p| p.record.pid == pid) {
+                Some(idx) => {
+                    let next_idx = (idx + 1).min(procs.len() - 1);
+                    procs[next_idx].record.pid
+                }
+                None => procs[0].record.pid,
+            },
+        };
+        self.selected_pid = Some(next_pid);
+    }
+
+    /// Selects the previous process in the filtered list (navigating Up with arrow keys).
+    pub fn select_prev_process(&mut self) {
+        let procs = self.filtered_processes();
+        if procs.is_empty() {
+            self.selected_pid = None;
+            return;
+        }
+
+        let prev_pid = match self.selected_pid {
+            None => procs.last().unwrap().record.pid,
+            Some(pid) => match procs.iter().position(|p| p.record.pid == pid) {
+                Some(idx) => {
+                    let prev_idx = idx.saturating_sub(1);
+                    procs[prev_idx].record.pid
+                }
+                None => procs[0].record.pid,
+            },
+        };
+        self.selected_pid = Some(prev_pid);
     }
 
     /// Updates the sorting column. If the same column is chosen again, toggles direction.
@@ -480,6 +559,126 @@ mod tests {
             pressure,
             processes,
         }
+    }
+
+    #[test]
+    fn test_keyboard_row_navigation() {
+        let mut state = ViewState::new();
+        let now = Instant::now();
+
+        // 1. Empty list
+        assert_eq!(state.selected_pid, None);
+        state.select_next_process();
+        assert_eq!(state.selected_pid, None);
+        state.select_prev_process();
+        assert_eq!(state.selected_pid, None);
+
+        // 2. Populate 3 processes
+        let procs = vec![
+            make_dummy_process(101, "proc1.exe", 80.0, Severity::Culprit),
+            make_dummy_process(202, "proc2.exe", 50.0, Severity::Suspicious),
+            make_dummy_process(303, "proc3.exe", 20.0, Severity::Normal),
+        ];
+        state.push_snapshot(make_snapshot(procs, PressureState::Smooth), now);
+
+        // Down from None -> selects first (101)
+        state.select_next_process();
+        assert_eq!(state.selected_pid, Some(101));
+
+        // Down from 101 -> selects 202
+        state.select_next_process();
+        assert_eq!(state.selected_pid, Some(202));
+
+        // Down from 202 -> selects 303
+        state.select_next_process();
+        assert_eq!(state.selected_pid, Some(303));
+
+        // Down from last (303) -> clamped at 303
+        state.select_next_process();
+        assert_eq!(state.selected_pid, Some(303));
+
+        // Up from 303 -> selects 202
+        state.select_prev_process();
+        assert_eq!(state.selected_pid, Some(202));
+
+        // Up from 202 -> selects 101
+        state.select_prev_process();
+        assert_eq!(state.selected_pid, Some(101));
+
+        // Up from first (101) -> clamped at 101
+        state.select_prev_process();
+        assert_eq!(state.selected_pid, Some(101));
+
+        // Direct select_pid
+        state.select_pid(Some(202));
+        assert_eq!(state.selected_pid, Some(202));
+        state.select_pid(None);
+        assert_eq!(state.selected_pid, None);
+    }
+
+    #[test]
+    fn test_pause_resume_freeze_display_snapshot() {
+        let mut state = ViewState::new();
+        let now = Instant::now();
+
+        // 1. Initial push while live
+        let snap1 = make_snapshot(
+            vec![make_dummy_process(
+                1,
+                "snap1.exe",
+                60.0,
+                Severity::Suspicious,
+            )],
+            PressureState::Smooth,
+        );
+        state.push_snapshot(snap1, now);
+        assert_eq!(
+            state.latest_snapshot.as_ref().unwrap().processes[0]
+                .record
+                .pid,
+            1
+        );
+        assert_eq!(state.display_processes[0].record.name, "snap1.exe");
+        assert!(!state.is_paused);
+
+        // 2. Pause display
+        state.set_paused(true, now);
+        assert!(state.is_paused);
+
+        // 3. New snapshot arrives while paused
+        let snap2 = make_snapshot(
+            vec![make_dummy_process(2, "snap2.exe", 95.0, Severity::Culprit)],
+            PressureState::Overloaded,
+        );
+        state.push_snapshot(snap2, now + Duration::from_secs(1));
+
+        // Display remains FROZEN at snap1
+        assert_eq!(
+            state.latest_snapshot.as_ref().unwrap().processes[0]
+                .record
+                .pid,
+            1,
+            "display snapshot must be frozen while paused"
+        );
+        assert_eq!(
+            state.display_processes[0].record.name, "snap1.exe",
+            "display processes must remain frozen while paused"
+        );
+        assert!(state.paused_snapshot.is_some());
+
+        // 4. Resume display
+        state.set_paused(false, now + Duration::from_secs(2));
+        assert!(!state.is_paused);
+
+        // Display updates to flushed pending snapshot (snap2)
+        assert_eq!(
+            state.latest_snapshot.as_ref().unwrap().processes[0]
+                .record
+                .pid,
+            2,
+            "display snapshot must update after resuming"
+        );
+        assert_eq!(state.display_processes[0].record.name, "snap2.exe");
     }
 
     #[test]

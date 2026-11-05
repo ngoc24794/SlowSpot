@@ -5,8 +5,11 @@
 
 pub mod actions;
 pub mod app;
+pub mod charts;
+pub mod palette;
 pub mod state;
 pub mod strings;
+pub mod table;
 pub mod theme;
 pub mod widgets;
 

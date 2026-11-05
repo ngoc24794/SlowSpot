@@ -6,20 +6,24 @@
 use eframe::egui::{self, Color32, Margin, Vec2};
 use std::sync::Arc;
 
-pub const COLOR_BG_PANEL: Color32 = Color32::from_rgb(20, 23, 30);
-pub const COLOR_BG_CARD: Color32 = Color32::from_rgb(28, 32, 42);
-pub const COLOR_BG_CARD_CULPRIT: Color32 = Color32::from_rgb(48, 22, 26);
-pub const COLOR_BG_CARD_SMOOTH: Color32 = Color32::from_rgb(20, 38, 28);
-pub const COLOR_BG_INPUT: Color32 = Color32::from_rgb(15, 17, 23);
+pub use crate::ui::palette::*;
 
-pub const COLOR_TEXT_PRIMARY: Color32 = Color32::from_rgb(240, 243, 248);
-pub const COLOR_TEXT_MUTED: Color32 = Color32::from_rgb(148, 158, 172);
+// Backward-compatible color aliases
+pub const COLOR_BG_PANEL: Color32 = COLOR_BG;
+pub const COLOR_BG_CARD: Color32 = COLOR_CARD;
+pub const COLOR_BG_INPUT: Color32 = COLOR_MUTED;
+pub const COLOR_TEXT_PRIMARY: Color32 = COLOR_FOREGROUND;
+pub const COLOR_TEXT_MUTED: Color32 = COLOR_MUTED_FOREGROUND;
+pub const COLOR_CULPRIT: Color32 = COLOR_DESTRUCTIVE;
+pub const COLOR_SUSPICIOUS: Color32 = COLOR_WARNING;
+pub const COLOR_NORMAL: Color32 = COLOR_ACCENT_OK;
 
-// Severity & Status Colors
-pub const COLOR_CULPRIT: Color32 = Color32::from_rgb(235, 87, 87);
-pub const COLOR_SUSPICIOUS: Color32 = Color32::from_rgb(242, 175, 74);
-pub const COLOR_NORMAL: Color32 = Color32::from_rgb(46, 204, 113);
-pub const COLOR_INFO: Color32 = Color32::from_rgb(74, 144, 226);
+/// Checks whether reduced motion is requested via the environment variable `SLOWSPOT_REDUCED_MOTION=1`.
+pub fn is_reduced_motion() -> bool {
+    std::env::var("SLOWSPOT_REDUCED_MOTION")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
 
 /// Configures fonts, dark styling, and widget appearances on the given egui context.
 pub fn install(ctx: &egui::Context) {
@@ -46,16 +50,36 @@ pub fn install(ctx: &egui::Context) {
 
     ctx.set_fonts(fonts);
 
-    // 2. Set dark visuals and style
+    // 2. Set dark visuals and style adhering to Swiss minimalism & dashboard density
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
-    style.visuals = egui::Visuals::dark();
-    style.visuals.panel_fill = COLOR_BG_PANEL;
-    style.visuals.window_fill = COLOR_BG_CARD;
-    style.visuals.extreme_bg_color = COLOR_BG_INPUT;
+    let mut visuals = egui::Visuals::dark();
+    visuals.panel_fill = COLOR_BG;
+    visuals.window_fill = COLOR_CARD;
+    visuals.extreme_bg_color = COLOR_MUTED;
 
-    // 3. Set comfortable spacing
-    style.spacing.item_spacing = Vec2::new(8.0, 8.0);
-    style.spacing.window_margin = Margin::same(12);
+    visuals.widgets.noninteractive.bg_fill = COLOR_BG;
+    visuals.widgets.noninteractive.fg_stroke.color = COLOR_FOREGROUND;
+
+    visuals.widgets.inactive.bg_fill = COLOR_CARD;
+    visuals.widgets.inactive.fg_stroke.color = COLOR_FOREGROUND;
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(RADIUS_SM as u8);
+
+    visuals.widgets.hovered.bg_fill = COLOR_MUTED;
+    visuals.widgets.hovered.fg_stroke.color = COLOR_FOREGROUND;
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(RADIUS_SM as u8);
+
+    visuals.widgets.active.bg_fill = COLOR_MUTED;
+    visuals.widgets.active.fg_stroke.color = COLOR_FOREGROUND;
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(RADIUS_SM as u8);
+
+    visuals.selection.bg_fill = COLOR_INFO.gamma_multiply(0.25);
+    visuals.selection.stroke = egui::Stroke::new(1.0, COLOR_INFO);
+
+    style.visuals = visuals;
+
+    // 3. Spacing aligned to 4 / 8 / 12 scale
+    style.spacing.item_spacing = Vec2::new(SPACING_SM, SPACING_SM);
+    style.spacing.window_margin = Margin::same(SPACING_MD as i8);
 
     ctx.set_style_of(egui::Theme::Dark, Arc::new(style));
     ctx.set_theme(egui::Theme::Dark);
