@@ -137,6 +137,7 @@ mod tests {
             tick_ms: 20, // Fast 20ms tick rate for quick test execution
             damping_window: 3,
             history_len: 60,
+            watch_retention_secs: 120,
         };
 
         let handle = spawn(source, cfg, on_snapshot);

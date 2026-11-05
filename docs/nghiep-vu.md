@@ -163,3 +163,28 @@ Các số liệu nghiệm thu thực tế thu được từ quá trình chạy `
 | **AC-08** | Chịu lỗi phân quyền | Không crash khi Access Denied | Bắt lỗi an toàn, thông báo yêu cầu quyền Administrator | **ĐẠT (PASS)** |
 | **AC-09** | Báo lỗi OpenGL native | Hộp thoại MessageBoxW khi lỗi | Bắt lỗi khởi tạo `eframe`, hiện thông báo Win32 tiếng Việt | **ĐẠT (PASS)** |
 
+
+
+---
+
+## 7. Giám sát Đợt Quá tải (Watch Episodes) & Phân rã Áp lực Nhóm (Pressure Breakdown)
+
+### 7.1. Bối cảnh & Mục tiêu Nghiệp vụ
+Trong thực tế sử dụng máy tính, tình trạng đơ lag thường diễn ra theo từng đợt (episode) kéo dài:
+1. **Hiện tượng giật cục bộ**: Một tiến trình nặng (như trình duyệt web, IDE, công cụ biên dịch) có thể ngốn CPU/RAM trong vài phút rồi tạm thời hạ nhiệt trước khi tiếp tục quá tải. Nếu chỉ dựa trên cờ trạng thái tức thời (snapshot 1 giây), người dùng sẽ không thấy được tiến trình đã gây quá tải từ khi nào và đỉnh điểm ra sao.
+2. **Hiện tượng quá tải phân tán (No single dominant culprit)**: Khi tổng tài nguyên hệ thống (ví dụ CPU 99.7%) bị quá tải nhưng tiến trình đơn lẻ cao nhất chỉ chiếm ~24% (ví dụ 3 tiến trình `rustc.exe` lần lượt 24%, 21%, 7%), việc chỉ báo chung chung "Nhiều tiến trình cùng chiếm tài nguyên" không giúp người dùng hiểu được nguồn gốc nghẽn.
+
+### 7.2. Vòng đời Đợt Quá tải (Episode Lifecycle)
+Mỗi đợt quá tải được theo dõi thông qua máy trạng thái thuần (Pure State Machine):
+- **Overloaded (Quá tải)**: Điểm số tiến trình vượt ngưỡng (`score >= 40.0`). Thời gian bắt đầu (`started_at`) được truy ngược (back-date) về tick damping đầu tiên để phản ánh đúng thời điểm bắt đầu gây tải.
+- **Cooling (Hạ nhiệt)**: Khi tiến trình giảm tải xuống dưới ngưỡng, đợt theo dõi bước vào giai đoạn giữ chân (retention cooldown, mặc định 120 giây, có thể cấu hình). Nếu tiến trình quá tải trở lại trong giai đoạn này, episode được tiếp tục mà không reset thời gian bắt đầu.
+- **Recovered (Phục hồi)**: Thời gian làm mát trôi qua trọn vẹn mà không phát sinh thêm quá tải. Episode được đánh dấu hoàn thành và lưu vào bộ đệm 10 episode gần nhất.
+- **Exited (Đã thoát)**: Tiến trình bị đóng hoặc tự kết thúc khi đang trong trạng thái theo dõi.
+
+### 7.3. Phân rã Áp lực Hệ thống & Nhóm Thủ phạm (Pressure Breakdown & Group Culprit)
+- **Gom nhóm theo Image Name**: Khi áp lực hệ thống cao (Strained hoặc Overloaded), hệ thống tự động gom nhóm tiến trình theo tên thực thi không phân biệt hoa thường (`rustc.exe`, `RUSTC.EXE` -> 1 nhóm).
+- **Tính toán Tỷ trọng & Phần dư**: Xác định tỷ lệ đóng góp của Top 3 nhóm tiến trình tiêu thụ tài nguyên nhiều nhất và phần dư không thể quy gán ("Hệ thống/khác").
+- **Nhóm Thủ phạm (Group Culprit)**: Nếu một nhóm tiến trình đơn lẻ đóng góp từ **>= 40%** tài nguyên đang bị quá tải, nhóm đó được xác định là Nhóm thủ phạm.
+- **Minh bạch Tài nguyên trên Header**: Huy hiệu trạng thái trên Header chỉ rõ tài nguyên quá tải: "Quá tải CPU", "Quá tải RAM", "Quá tải đĩa" hoặc kết hợp "Quá tải CPU + RAM". Tooltip hiển thị chỉ số thực tế so với ngưỡng quy định.
+- **Banner Chi tiết**: Khi xuất hiện nhóm thủ phạm, Banner nêu đích danh nhóm và tỷ lệ: *"CPU đang 99.7% — rustc.exe (3 tiến trình) chiếm 52%, chrome.exe (4) 8%, còn lại 40% từ hệ thống/tiến trình khác"*.
+- **Gom cụm & Bảo vệ Thao tác**: Bảng tiến trình đánh dấu các dòng thuộc nhóm bằng nhãn nhóm nhỏ (ví dụ `×3`) và làm nổi bật màu nhẹ. Thao tác can thiệp vẫn tuân thủ nguyên tắc an toàn 2 cấp độ trên từng tiến trình (không bao giờ tắt hàng loạt cả nhóm chỉ bằng một click).

@@ -429,3 +429,32 @@ Kết quả đo đạc tự động bởi `scripts/verify.ps1` khi chạy tiến
 | **Thời gian sống & Tiêu đề** | Sống ổn định sau 8s | ≥ 8s | **PASS** | `MainWindowTitle` khớp chính xác `"SlowSpot"` |
 | **Dọn dẹp tiến trình** | Thoát sạch theo PID | Thu hồi sạch | **PASS** | Tiến trình tắt sạch, không để lại tiến trình mồ côi |
 
+
+
+---
+
+## 9. Kiến trúc Giám sát Đợt Quá tải & Phân rã Áp lực Nhóm (Watch & Breakdown Subsystems)
+
+### 9.1. Bộ theo dõi đợt quá tải thuần (`OverloadTracker`)
+- **Vị trí**: `src/analyzer/tracker.rs`.
+- **Đặc tính thiết kế**: Pure Domain Component, không phụ thuộc I/O hay gọi hàm OS (Windows API). Thời gian được tiêm hoàn toàn qua `timestamp_ms` của snapshot, giúp kiểm thử 100% deterministically.
+- **Cấu trúc dữ liệu chính**:
+  - `ProcessKey`: Định danh tiến trình hoặc nhóm tiến trình (`Individual { pid, name }` và `Group { name }`).
+  - `Episode`: Lưu trữ thông tin đợt quá tải: `started_at`, `peak_cpu`, `peak_ram_bytes`, `peak_disk_bps`, `overloaded_seconds`, `last_overloaded_at`, `state` (`Overloaded`, `Cooling`, `Recovered`, `Exited`), `score_history` (dùng vẽ sparkline mini).
+- **Cơ chế Back-dating**: Khi điểm số làm mượt vượt ngưỡng (>= 40.0), tracker duyệt ngược bộ đệm lịch sử damping (`recent_ticks`) để xác định chính xác thời điểm tải bắt đầu tăng vượt ngưỡng (lùi tối đa `damping_window` ticks).
+- **Quản lý giới hạn bộ nhớ**:
+  - Giới hạn tối đa 20 tiến trình được theo dõi đồng thời. Nếu danh sách đầy, ưu tiên loại bỏ các tiến trình ở trạng thái `Recovered` cũ nhất.
+  - Vòng đệm lưu giữ 10 episode đã hoàn thành (`finished`) gần nhất.
+  - Cấu hình thời gian làm mát: `watch_retention_secs` (mặc định 120s trong `AppConfig`).
+
+### 9.2. Phân rã áp lực hệ thống (`PressureBreakdown`)
+- **Vị trí**: `src/analyzer/breakdown.rs`.
+- **Thuật toán gom nhóm**:
+  1. Xác định tài nguyên chịu tải chính (`OverloadedResource::Cpu`, `Memory`, `Disk`) dựa trên tỷ lệ vượt ngưỡng.
+  2. Gom nhóm tiến trình theo tên thực thi chuẩn hóa chữ thường (case-insensitive).
+  3. Tính tổng tải của từng nhóm và chia cho tổng tài nguyên hệ thống để ra tỷ trọng phần trăm (`share_percent`).
+  4. Lấy Top 3 nhóm tiêu thụ cao nhất; phần còn lại được tính vào phần dư hệ thống (`remainder_share_percent`, nhãn "Hệ thống/khác").
+  5. Nếu nhóm đứng đầu chiếm `>= 40.0%`, nhóm được gắn cờ là `group_culprit`.
+- **Tích hợp Dataflow**:
+  - Kết quả phân rã được đóng gói vào trường `pub breakdown: Option<PressureBreakdown>` trong `SystemSnapshot`.
+  - UI và Tracker cùng tiêu thụ `breakdown` để hiển thị banner giải thích cụ thể, định danh nhóm, gán nhãn `×N` trong bảng và tạo group episode.

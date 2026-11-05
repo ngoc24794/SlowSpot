@@ -2,12 +2,14 @@
 //!
 //! Decoupled from `egui` and platform APIs, this module handles metric history,
 //! search filtering, process list stabilization (damping), culprit selection,
-//! pending action timers, and user-facing notifications.
+//! pending action timers, monitored overload episodes, and user-facing notifications.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::model::{Bottleneck, ProcessKind, ScoredProcess, Severity, SystemSnapshot};
+use crate::model::{
+    Bottleneck, Episode, EpisodeState, ProcessKind, ScoredProcess, Severity, SystemSnapshot,
+};
 
 /// Maximum number of historical metric samples retained for sparklines (60 seconds).
 pub const MAX_HISTORY_POINTS: usize = 60;
@@ -423,6 +425,79 @@ impl ViewState {
                 .collect()
         }
     }
+
+    /// Returns the slice of monitored episodes from the latest snapshot.
+    pub fn watched_episodes(&self) -> &[Episode] {
+        self.latest_snapshot
+            .as_ref()
+            .map(|s| s.watched.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Number of processes currently under active overload or cooling retention.
+    pub fn actively_watched_count(&self) -> usize {
+        self.watched_episodes()
+            .iter()
+            .filter(|e| e.state == EpisodeState::Overloaded || e.state == EpisodeState::Cooling)
+            .count()
+    }
+
+    /// Checks whether the specified PID is currently an actively monitored episode.
+    pub fn is_watched_pid(&self, pid: u32) -> bool {
+        self.watched_episodes().iter().any(|e| {
+            e.pid == pid
+                && (e.state == EpisodeState::Overloaded || e.state == EpisodeState::Cooling)
+        })
+    }
+
+    /// Returns the active group culprit share if one accounts for >= 40% of the overloaded resource.
+    pub fn group_culprit(&self) -> Option<&crate::model::ProcessGroupShare> {
+        self.latest_snapshot
+            .as_ref()
+            .and_then(|s| s.breakdown.as_ref())
+            .and_then(|b| b.group_culprit.as_ref())
+    }
+
+    /// Returns the group member count (e.g. Some(3)) if this process belongs to the active group culprit.
+    pub fn is_group_culprit_member(&self, name: &str) -> Option<usize> {
+        let gc = self.group_culprit()?;
+        if gc.name.eq_ignore_ascii_case(name) {
+            Some(gc.process_count)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the list of processes to display in the table, guaranteeing that
+    /// any actively watched process matching search remains visible even if it falls out of the top 20 by score.
+    pub fn table_processes(&self) -> Vec<&ScoredProcess> {
+        let filtered = self.filtered_processes();
+        let active_watched_pids: HashSet<u32> = self
+            .watched_episodes()
+            .iter()
+            .filter(|e| e.state == EpisodeState::Overloaded || e.state == EpisodeState::Cooling)
+            .map(|e| e.pid)
+            .collect();
+
+        if active_watched_pids.is_empty() {
+            return filtered.into_iter().take(20).collect();
+        }
+
+        let mut watched_rows = Vec::new();
+        let mut normal_rows = Vec::new();
+
+        for proc in filtered {
+            if active_watched_pids.contains(&proc.record.pid) {
+                watched_rows.push(proc);
+            } else {
+                normal_rows.push(proc);
+            }
+        }
+
+        let needed_unwatched = 20usize.saturating_sub(watched_rows.len());
+        watched_rows.extend(normal_rows.into_iter().take(needed_unwatched));
+        watched_rows
+    }
 }
 
 /// Sorts a slice of scored processes in-place according to column and direction.
@@ -522,6 +597,31 @@ pub fn format_percent(pct: f32) -> String {
     format!("{:.1}%", pct.max(0.0))
 }
 
+/// Formats a millisecond Unix timestamp as local-style "HH:MM:SS" without external dependencies.
+pub fn format_time_hms(timestamp_ms: u64) -> String {
+    let total_secs = (timestamp_ms / 1000) % 86400;
+    let h = total_secs / 3600;
+    let m = (total_secs % 3600) / 60;
+    let s = total_secs % 60;
+    format!("{h:02}:{m:02}:{s:02}")
+}
+
+/// Formats duration seconds as "MM:SS" (e.g. "02:10").
+pub fn format_duration_mmss(seconds: u64) -> String {
+    let m = seconds / 60;
+    let s = seconds % 60;
+    format!("{m:02}:{s:02}")
+}
+
+/// Formats the episode timeline string: "Từ HH:MM:SS (đã MM:SS)".
+pub fn format_episode_time_str(ep: &Episode) -> String {
+    format!(
+        "Từ {} (đã {})",
+        format_time_hms(ep.started_at),
+        format_duration_mmss(ep.overloaded_seconds)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,6 +658,8 @@ mod tests {
             },
             pressure,
             processes,
+            watched: Vec::new(),
+            breakdown: None,
         }
     }
 
@@ -913,5 +1015,64 @@ mod tests {
         assert!(state.is_cooldown_active(now + Duration::from_secs(2)));
         assert!(state.is_cooldown_active(now + Duration::from_secs(11)));
         assert!(!state.is_cooldown_active(now + Duration::from_secs(13)));
+    }
+
+    #[test]
+    fn test_table_processes_pins_watched_process_outside_top20() {
+        let mut state = ViewState::new();
+        let now = Instant::now();
+
+        // Generate 25 processes. PID 999 is at rank 25 with score 1.0
+        let mut procs = Vec::new();
+        for i in 1..=24 {
+            procs.push(make_dummy_process(
+                i,
+                &format!("proc{i}.exe"),
+                (100 - i) as f32,
+                Severity::Normal,
+            ));
+        }
+        procs.push(make_dummy_process(
+            999,
+            "watched_hog.exe",
+            1.0,
+            Severity::Normal,
+        ));
+
+        let mut snap = make_snapshot(procs, PressureState::Smooth);
+        // PID 999 is cooling episode
+        snap.watched.push(Episode {
+            pid: 999,
+            name: "watched_hog.exe".to_string(),
+            process_count: 1,
+            started_at: 10_000,
+            peak_score: 85.0,
+            peak_cpu: 85.0,
+            peak_ram_bytes: 500 * 1024 * 1024,
+            peak_disk_bps: 0.0,
+            overloaded_seconds: 15,
+            last_overloaded_at: 25_000,
+            state: EpisodeState::Cooling,
+            kind: ProcessKind::UserApp,
+            killable: true,
+            score_history: vec![85.0, 1.0],
+        });
+
+        state.push_snapshot(snap, now);
+
+        let table_rows = state.table_processes();
+        assert!(
+            table_rows.iter().any(|p| p.record.pid == 999),
+            "Watched process PID 999 must stay visible in table even if ranked #25!"
+        );
+        assert_eq!(table_rows.len(), 20);
+    }
+
+    #[test]
+    fn test_format_time_and_duration() {
+        // 14:32:05 = 14*3600 + 32*60 + 5 = 50400 + 1920 + 5 = 52325 seconds = 52_325_000 ms
+        assert_eq!(format_time_hms(52_325_000), "14:32:05");
+        // 130 seconds = 02:10
+        assert_eq!(format_duration_mmss(130), "02:10");
     }
 }

@@ -1,17 +1,17 @@
 //! Custom reusable GUI widgets and drawing helpers.
 //!
 //! Renders geometric shapes (WCAG compliant), score bars with separate labels,
-//! status badges, icon painters, and mini metric chips.
+//! status badges, icon painters, mini metric chips, and overload episode indicators.
 
 use eframe::egui::{
     self, Color32, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
 };
 
-use crate::model::{ProcessKind, Severity};
+use crate::model::{EpisodeState, ProcessKind, Severity};
 use crate::ui::palette::{
     severity_indicator, PressureShape, SeverityShape, COLOR_BORDER_SUBTLE, COLOR_DESTRUCTIVE,
-    COLOR_FOREGROUND, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_PROTECTED, COLOR_WARNING,
-    FONT_SIZE_CAPTION, RADIUS_SM,
+    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_PROTECTED,
+    COLOR_WARNING, FONT_SIZE_CAPTION, FONT_SIZE_TINY, RADIUS_SM,
 };
 use crate::ui::strings;
 
@@ -459,4 +459,154 @@ pub fn draw_sort_arrow(ui: &mut Ui, ascending: bool, color: Color32) -> Response
         }
     }
     resp
+}
+
+/// Renders a state badge for a watched episode with WCAG-compliant shape + text.
+pub fn watched_state_badge(ui: &mut Ui, state: EpisodeState, remaining_secs: u64) {
+    let (text, shape, color) = match state {
+        EpisodeState::Overloaded => (
+            strings::WATCHED_BADGE_OVERLOADED.to_string(),
+            SeverityShape::Triangle,
+            COLOR_DESTRUCTIVE,
+        ),
+        EpisodeState::Cooling => (
+            format!(
+                "{}{}{}",
+                strings::WATCHED_BADGE_COOLING_PREFIX,
+                remaining_secs,
+                strings::WATCHED_BADGE_COOLING_SUFFIX
+            ),
+            SeverityShape::Circle,
+            COLOR_WARNING,
+        ),
+        EpisodeState::Exited => (
+            strings::WATCHED_BADGE_EXITED.to_string(),
+            SeverityShape::Diamond,
+            COLOR_MUTED_FOREGROUND,
+        ),
+        EpisodeState::Recovered => (
+            "Đã hồi phục".to_string(),
+            SeverityShape::Circle,
+            crate::ui::palette::COLOR_ACCENT_OK,
+        ),
+    };
+
+    let bg_color = color.gamma_multiply(0.18);
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let galley = ui.painter().layout_no_wrap(text, font_id, color);
+    let size = Vec2::new(galley.size().x + 22.0, 20.0);
+
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, RADIUS_SM, bg_color);
+    painter.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, color.gamma_multiply(0.4)),
+        StrokeKind::Inside,
+    );
+
+    let shape_center = Pos2::new(rect.left() + 9.0, rect.center().y);
+    draw_severity_shape_at(painter, shape, shape_center, 8.0, color);
+
+    painter.galley(
+        Pos2::new(rect.left() + 17.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
+}
+
+/// Renders a tiny sparkline trend for watched process scores.
+pub fn mini_sparkline(ui: &mut Ui, values: &[f32], width: f32, height: f32) {
+    let size = Vec2::new(width, height);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    if !ui.is_rect_visible(rect) || values.len() < 2 {
+        return;
+    }
+
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, COLOR_MUTED);
+
+    let max_val = values.iter().copied().fold(100.0f32, f32::max);
+    let min_val = 0.0f32;
+    let range = (max_val - min_val).max(1.0);
+
+    let points: Vec<Pos2> = values
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| {
+            let x = rect.left() + (i as f32 / (values.len() - 1) as f32) * rect.width();
+            let norm = ((val - min_val) / range).clamp(0.0, 1.0);
+            let y = rect.bottom() - 1.0 - norm * (rect.height() - 2.0);
+            Pos2::new(x, y)
+        })
+        .collect();
+
+    let last_val = *values.last().unwrap_or(&0.0);
+    let stroke_color = if last_val >= 70.0 {
+        COLOR_DESTRUCTIVE
+    } else if last_val >= 40.0 {
+        COLOR_WARNING
+    } else {
+        crate::ui::palette::COLOR_ACCENT_OK
+    };
+
+    painter.add(Shape::line(points, Stroke::new(1.5, stroke_color)));
+}
+
+/// Renders a compact badge/tag marking a process row as actively monitored.
+pub fn watched_tag(ui: &mut Ui) {
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let text = strings::BADGE_WATCHED_TAG;
+    let color = COLOR_WARNING;
+    let bg_color = color.gamma_multiply(0.18);
+
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id, color);
+    let size = Vec2::new(galley.size().x + 8.0, 16.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, RADIUS_SM, bg_color);
+    painter.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, color.gamma_multiply(0.4)),
+        StrokeKind::Inside,
+    );
+
+    painter.galley(
+        Pos2::new(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
+}
+
+/// Renders a small badge showing process group count (e.g. "×3").
+pub fn group_tag(ui: &mut Ui, count: usize) {
+    let font_id = egui::FontId::proportional(FONT_SIZE_TINY);
+    let text = format!("×{count}");
+    let color = COLOR_INFO;
+    let bg_color = color.gamma_multiply(0.2);
+
+    let galley = ui.painter().layout_no_wrap(text, font_id, color);
+    let size = Vec2::new(galley.size().x + 8.0, 16.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+
+    painter.rect_filled(rect, RADIUS_SM, bg_color);
+    painter.rect_stroke(
+        rect,
+        RADIUS_SM,
+        Stroke::new(1.0, color.gamma_multiply(0.5)),
+        StrokeKind::Inside,
+    );
+
+    painter.galley(
+        Pos2::new(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        color,
+    );
 }
