@@ -15,7 +15,10 @@ pub const COLOR_BG: Color32 = Color32::from_rgb(15, 23, 42);
 pub const COLOR_CARD: Color32 = Color32::from_rgb(27, 35, 54);
 
 /// Culprit card background (#30161A - dark tinted crimson).
-pub const COLOR_BG_CARD_CULPRIT: Color32 = Color32::from_rgb(48, 22, 26);
+pub const COLOR_BG_CARD_CULPRIT: Color32 = Color32::from_rgb(38, 16, 20);
+
+/// Suspicious card background (#281808 - dark tinted amber).
+pub const COLOR_BG_CARD_SUSPICIOUS: Color32 = Color32::from_rgb(40, 24, 8);
 
 /// Healthy smooth card background (#14261C - dark tinted forest).
 pub const COLOR_BG_CARD_SMOOTH: Color32 = Color32::from_rgb(20, 38, 28);
@@ -107,6 +110,58 @@ pub fn severity_indicator(severity: Severity) -> (&'static str, SeverityShape, C
             COLOR_DESTRUCTIVE,
         ),
     }
+}
+
+/// Complete visual design token set for process overload severity level presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelTokens {
+    /// Border / frame stroke color (#F59E0B for Suspicious, #EF4444 for Culprit).
+    pub border: Color32,
+    /// Tinted card background (#281808 dark amber for Suspicious, #261014 dark crimson for Culprit).
+    pub bg: Color32,
+    /// High-contrast accent color matching the frame.
+    pub text_accent: Color32,
+    /// Localized hero card title ("ĐÁNG NGỜ" or "THỦ PHẠM CHÍNH").
+    pub title: &'static str,
+    /// Accompanying geometric indicator shape (Triangle or Diamond).
+    pub shape: SeverityShape,
+    /// Localized badge label ("Đáng ngờ" or "Thủ phạm").
+    pub badge_label: &'static str,
+}
+
+/// Returns the complete visual design tokens for a given severity level.
+pub fn level_tokens(severity: Severity) -> LevelTokens {
+    match severity {
+        Severity::Suspicious => LevelTokens {
+            border: COLOR_WARNING,
+            bg: COLOR_BG_CARD_SUSPICIOUS,
+            text_accent: COLOR_WARNING,
+            title: strings::HERO_TITLE_SUSPICIOUS,
+            shape: SeverityShape::Triangle,
+            badge_label: strings::SEVERITY_SUSPICIOUS,
+        },
+        Severity::Culprit => LevelTokens {
+            border: COLOR_DESTRUCTIVE,
+            bg: COLOR_BG_CARD_CULPRIT,
+            text_accent: COLOR_DESTRUCTIVE,
+            title: strings::HERO_TITLE_CULPRIT,
+            shape: SeverityShape::Diamond,
+            badge_label: strings::SEVERITY_CULPRIT,
+        },
+        Severity::Normal => LevelTokens {
+            border: COLOR_ACCENT_OK,
+            bg: COLOR_BG_CARD_SMOOTH,
+            text_accent: COLOR_ACCENT_OK,
+            title: strings::HERO_NO_CULPRIT,
+            shape: SeverityShape::Circle,
+            badge_label: strings::SEVERITY_NORMAL,
+        },
+    }
+}
+
+/// Helper mapping a raw or smoothed culprit score directly to level design tokens.
+pub fn level_tokens_for_score(score: f32) -> LevelTokens {
+    level_tokens(Severity::from_score(score))
 }
 
 /// Geometric shape drawn for system pressure states.
@@ -297,5 +352,69 @@ mod tests {
         assert_eq!(label_none, strings::PRESSURE_WAITING);
         assert_eq!(shape_none, PressureShape::Circle);
         assert_eq!(color_none, COLOR_MUTED_FOREGROUND);
+    }
+
+    #[test]
+    fn test_level_color_token_mapping() {
+        // 1. Suspicious level token assertions (score 40-69)
+        let susp = level_tokens(Severity::Suspicious);
+        assert_eq!(susp.border, COLOR_WARNING);
+        assert_eq!(susp.border, Color32::from_rgb(245, 158, 11));
+        assert_eq!(susp.bg, COLOR_BG_CARD_SUSPICIOUS);
+        assert_eq!(susp.title, "ĐÁNG NGỜ");
+        assert_eq!(susp.shape, SeverityShape::Triangle);
+        assert_eq!(susp.badge_label, strings::SEVERITY_SUSPICIOUS);
+        assert_eq!(susp.text_accent, COLOR_WARNING);
+
+        // WCAG AA contrast ratio >= 4.5:1 on tinted suspicious background
+        let border_on_susp = contrast_ratio(susp.border, susp.bg);
+        assert!(
+            border_on_susp >= 4.5,
+            "Border on suspicious bg must be >= 4.5 (got {border_on_susp:.2})"
+        );
+        let fg_on_susp = contrast_ratio(COLOR_FOREGROUND, susp.bg);
+        assert!(
+            fg_on_susp >= 4.5,
+            "Foreground text on suspicious bg must be >= 4.5 (got {fg_on_susp:.2})"
+        );
+        let muted_on_susp = contrast_ratio(COLOR_MUTED_FOREGROUND, susp.bg);
+        assert!(
+            muted_on_susp >= 4.5,
+            "Muted text on suspicious bg must be >= 4.5 (got {muted_on_susp:.2})"
+        );
+
+        // 2. Culprit level token assertions (score >= 70)
+        let culp = level_tokens(Severity::Culprit);
+        assert_eq!(culp.border, COLOR_DESTRUCTIVE);
+        assert_eq!(culp.border, Color32::from_rgb(239, 68, 68));
+        assert_eq!(culp.bg, COLOR_BG_CARD_CULPRIT);
+        assert_eq!(culp.title, "THỦ PHẠM CHÍNH");
+        assert_eq!(culp.shape, SeverityShape::Diamond);
+        assert_eq!(culp.badge_label, strings::SEVERITY_CULPRIT);
+        assert_eq!(culp.text_accent, COLOR_DESTRUCTIVE);
+
+        // WCAG AA contrast ratio >= 4.5:1 on tinted culprit background
+        let border_on_culp = contrast_ratio(culp.border, culp.bg);
+        assert!(
+            border_on_culp >= 4.5,
+            "Border on culprit bg must be >= 4.5 (got {border_on_culp:.2})"
+        );
+        let fg_on_culp = contrast_ratio(COLOR_FOREGROUND, culp.bg);
+        assert!(
+            fg_on_culp >= 4.5,
+            "Foreground text on culprit bg must be >= 4.5 (got {fg_on_culp:.2})"
+        );
+        let muted_on_culp = contrast_ratio(COLOR_MUTED_FOREGROUND, culp.bg);
+        assert!(
+            muted_on_culp >= 4.5,
+            "Muted text on culprit bg must be >= 4.5 (got {muted_on_culp:.2})"
+        );
+
+        // 3. Score-based mapping verification
+        assert_eq!(level_tokens_for_score(40.0), susp);
+        assert_eq!(level_tokens_for_score(57.4), susp);
+        assert_eq!(level_tokens_for_score(69.9), susp);
+        assert_eq!(level_tokens_for_score(70.0), culp);
+        assert_eq!(level_tokens_for_score(99.1), culp);
     }
 }

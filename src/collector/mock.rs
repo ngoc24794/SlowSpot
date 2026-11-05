@@ -17,10 +17,77 @@ pub enum Scenario {
     DiskThrash,
     /// Gradual or critical memory leak consuming nearly all physical RAM.
     MemoryLeak,
+    /// Demo Phase 1: Calm operation for 8 seconds.
+    Calm,
+    /// Demo Phase 2: Suspicious early warning (score 40-69) for 15 seconds.
+    Suspicious,
+    /// Demo Phase 3: Active culprit thrashing system (score >= 70) for 15 seconds.
+    Culprit,
+    /// Demo Phase 4: Cooldown recovery for 20 seconds.
+    Cooling,
 }
 
 /// Type alias for backward and forward naming compatibility.
 pub type MockScenario = Scenario;
+
+/// Timed operational phase for the demo simulation scenario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DemoPhase {
+    /// Normal operation with balanced low utilization (8 seconds).
+    Calm,
+    /// Elevated resource consumption warning (score 40-69) for 15 seconds.
+    Suspicious,
+    /// Runaway culprit overloading the PC (score >= 70) for 15 seconds.
+    Culprit,
+    /// Cooldown window watched for 20 seconds.
+    Cooling,
+}
+
+impl DemoPhase {
+    pub const CALM_SECS: u64 = 8;
+    pub const SUSPICIOUS_SECS: u64 = 15;
+    pub const CULPRIT_SECS: u64 = 15;
+    pub const COOLING_SECS: u64 = 20;
+    pub const CYCLE_SECS: u64 =
+        Self::CALM_SECS + Self::SUSPICIOUS_SECS + Self::CULPRIT_SECS + Self::COOLING_SECS;
+
+    pub fn from_tick(tick: u64) -> (Self, u64) {
+        let t = tick % Self::CYCLE_SECS;
+        if t < Self::CALM_SECS {
+            (Self::Calm, Self::CALM_SECS - t)
+        } else if t < Self::CALM_SECS + Self::SUSPICIOUS_SECS {
+            (
+                Self::Suspicious,
+                Self::CALM_SECS + Self::SUSPICIOUS_SECS - t,
+            )
+        } else if t < Self::CALM_SECS + Self::SUSPICIOUS_SECS + Self::CULPRIT_SECS {
+            (
+                Self::Culprit,
+                Self::CALM_SECS + Self::SUSPICIOUS_SECS + Self::CULPRIT_SECS - t,
+            )
+        } else {
+            (Self::Cooling, Self::CYCLE_SECS - t)
+        }
+    }
+
+    pub fn name_vi(&self) -> &'static str {
+        match self {
+            Self::Calm => "Bình thường",
+            Self::Suspicious => "Đáng ngờ",
+            Self::Culprit => "Thủ phạm",
+            Self::Cooling => "Hạ nhiệt",
+        }
+    }
+
+    pub fn to_scenario(&self) -> Scenario {
+        match self {
+            Self::Calm => Scenario::Calm,
+            Self::Suspicious => Scenario::Suspicious,
+            Self::Culprit => Scenario::Culprit,
+            Self::Cooling => Scenario::Cooling,
+        }
+    }
+}
 
 /// Linear Congruential Generator for deterministic pseudo-random variations.
 #[derive(Debug, Clone)]
@@ -60,7 +127,7 @@ impl Lcg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MockMode {
     Fixed(Scenario),
-    Rotating,
+    Demo,
 }
 
 /// Mock metric generator providing synthetic [`RawSnapshot`] observations.
@@ -72,6 +139,9 @@ pub struct MockSource {
 }
 
 impl MockSource {
+    /// Base timestamp in milliseconds for synthetic demo timestamps.
+    pub const BASE_TIMESTAMP_MS: u64 = 1_700_000_000_000;
+
     /// Creates a mock source locked to a fixed scenario.
     pub fn new(scenario: Scenario) -> Self {
         Self::with_seed(scenario, Lcg::DEFAULT_SEED)
@@ -83,17 +153,17 @@ impl MockSource {
             mode: MockMode::Fixed(scenario),
             tick_count: 0,
             lcg: Lcg::new(seed),
-            base_timestamp_ms: 1_700_000_000_000,
+            base_timestamp_ms: Self::BASE_TIMESTAMP_MS,
         }
     }
 
-    /// Creates a demo mock source that cycles through scenarios every ~15 ticks.
+    /// Creates a demo mock source running the timed 4-phase demo scenario.
     pub fn demo() -> Self {
         Self {
-            mode: MockMode::Rotating,
+            mode: MockMode::Demo,
             tick_count: 0,
             lcg: Lcg::new(Lcg::DEFAULT_SEED),
-            base_timestamp_ms: 1_700_000_000_000,
+            base_timestamp_ms: Self::BASE_TIMESTAMP_MS,
         }
     }
 
@@ -101,13 +171,18 @@ impl MockSource {
     pub fn current_scenario(&self) -> Scenario {
         match self.mode {
             MockMode::Fixed(s) => s,
-            MockMode::Rotating => match (self.tick_count / 15) % 4 {
-                0 => Scenario::Idle,
-                1 => Scenario::CpuHog,
-                2 => Scenario::DiskThrash,
-                _ => Scenario::MemoryLeak,
-            },
+            MockMode::Demo => {
+                let (phase, _) = DemoPhase::from_tick(self.tick_count);
+                phase.to_scenario()
+            }
         }
+    }
+
+    /// Returns the current demo phase label and remaining seconds at the given timestamp.
+    pub fn demo_phase_at(timestamp_ms: u64) -> (&'static str, u64) {
+        let tick = timestamp_ms.saturating_sub(Self::BASE_TIMESTAMP_MS) / 1000;
+        let (phase, remaining) = DemoPhase::from_tick(tick);
+        (phase.name_vi(), remaining)
     }
 
     /// Number of samples produced so far.
@@ -307,7 +382,7 @@ impl SampleSource for MockSource {
                     disk_read_bps: 0.0,
                     disk_write_bps: 0.0,
                 };
-                (rec, 6.8, 5 * 1024 * 1024 * 1024)
+                (Some(rec), 6.8, 5 * 1024 * 1024 * 1024)
             }
             Scenario::CpuHog => {
                 let jitter = self.lcg.gen_range_f32(-0.5, 0.5);
@@ -321,7 +396,7 @@ impl SampleSource for MockSource {
                     disk_read_bps: 0.0,
                     disk_write_bps: 0.0,
                 };
-                (rec, 99.2, 6 * 1024 * 1024 * 1024)
+                (Some(rec), 99.2, 6 * 1024 * 1024 * 1024)
             }
             Scenario::DiskThrash => {
                 let jitter = self.lcg.gen_range_f32(-2_000_000.0, 2_000_000.0);
@@ -335,7 +410,7 @@ impl SampleSource for MockSource {
                     disk_read_bps: 0.0,
                     disk_write_bps: (120_000_000.0 + jitter as f64).max(100_000_000.0),
                 };
-                (rec, 18.5, 6 * 1024 * 1024 * 1024)
+                (Some(rec), 18.5, 6 * 1024 * 1024 * 1024)
             }
             Scenario::MemoryLeak => {
                 let rec = ProcessRecord {
@@ -348,11 +423,54 @@ impl SampleSource for MockSource {
                     disk_read_bps: 0.0,
                     disk_write_bps: 0.0,
                 };
-                (rec, 14.0, 15 * 1024 * 1024 * 1024) // 15 GB / 16 GB used = 93.75% RAM pressure
+                (Some(rec), 14.0, 15 * 1024 * 1024 * 1024) // 15 GB / 16 GB used = 93.75% RAM pressure
+            }
+            Scenario::Calm => (None, 6.8, 5 * 1024 * 1024 * 1024),
+            Scenario::Suspicious => {
+                let rec = ProcessRecord {
+                    pid: 9999,
+                    parent_pid: Some(200),
+                    name: "test_heavy.exe".to_string(),
+                    exe_path: Some("C:\\SlowSpot\\test_heavy.exe".to_string()),
+                    cpu_percent: 47.0,
+                    memory_bytes: 45 * 1024 * 1024,
+                    disk_read_bps: 0.0,
+                    disk_write_bps: 0.0,
+                };
+                (Some(rec), 48.0, 6 * 1024 * 1024 * 1024)
+            }
+            Scenario::Culprit => {
+                let jitter = self.lcg.gen_range_f32(-0.2, 0.2);
+                let rec = ProcessRecord {
+                    pid: 9999,
+                    parent_pid: Some(200),
+                    name: "test_heavy.exe".to_string(),
+                    exe_path: Some("C:\\SlowSpot\\test_heavy.exe".to_string()),
+                    cpu_percent: (99.1 + jitter).clamp(95.0, 100.0),
+                    memory_bytes: 350 * 1024 * 1024,
+                    disk_read_bps: 0.0,
+                    disk_write_bps: 0.0,
+                };
+                (Some(rec), 99.2, 6 * 1024 * 1024 * 1024)
+            }
+            Scenario::Cooling => {
+                let rec = ProcessRecord {
+                    pid: 9999,
+                    parent_pid: Some(200),
+                    name: "test_heavy.exe".to_string(),
+                    exe_path: Some("C:\\SlowSpot\\test_heavy.exe".to_string()),
+                    cpu_percent: 0.2,
+                    memory_bytes: 45 * 1024 * 1024,
+                    disk_read_bps: 0.0,
+                    disk_write_bps: 0.0,
+                };
+                (Some(rec), 7.5, 5 * 1024 * 1024 * 1024)
             }
         };
 
-        processes.push(culprit_proc);
+        if let Some(proc) = culprit_proc {
+            processes.push(proc);
+        }
 
         let total_disk_bps: f64 = processes
             .iter()
@@ -378,7 +496,7 @@ impl SampleSource for MockSource {
 mod tests {
     use super::*;
     use crate::analyzer::Analyzer;
-    use crate::model::{Bottleneck, Severity};
+    use crate::model::{Bottleneck, EpisodeState, Severity};
 
     #[test]
     fn test_mock_cpu_hog_scenario() {
@@ -450,28 +568,123 @@ mod tests {
     }
 
     #[test]
-    fn test_mock_demo_rotates_scenarios_every_15_ticks() {
+    fn test_mock_demo_scenario_phases_and_durations() {
         let mut source = MockSource::demo();
-        assert_eq!(source.current_scenario(), Scenario::Idle);
+        let mut analyzer = Analyzer::default().with_retention(20);
 
-        for _ in 0..14 {
-            let _ = source.sample();
+        // 1. Calm phase: 8 ticks (0..8)
+        for tick in 0..8 {
+            assert_eq!(
+                source.current_scenario(),
+                Scenario::Calm,
+                "Tick {} must be Scenario::Calm",
+                tick
+            );
+            let raw = source.sample();
+            let snap = analyzer.analyze(raw);
+            assert!(
+                snap.watched.is_empty(),
+                "Tick {}: no watched episodes expected in Calm, found {}",
+                tick,
+                snap.watched.len()
+            );
+            assert!(
+                snap.processes
+                    .iter()
+                    .all(|p| p.severity == Severity::Normal),
+                "Tick {}: all processes should be Normal in Calm",
+                tick
+            );
         }
-        // At tick 14, still Idle (ticks 0..14)
-        // Next sample is tick 15 -> should switch to CpuHog
-        let _ = source.sample();
-        assert_eq!(source.current_scenario(), Scenario::CpuHog);
 
-        for _ in 0..14 {
-            let _ = source.sample();
+        // 2. Suspicious phase: 15 ticks (8..23)
+        for tick in 8..23 {
+            assert_eq!(
+                source.current_scenario(),
+                Scenario::Suspicious,
+                "Tick {} must be Scenario::Suspicious",
+                tick
+            );
+            let raw = source.sample();
+            let snap = analyzer.analyze(raw);
+            let target = snap
+                .processes
+                .iter()
+                .find(|p| p.record.name == "test_heavy.exe")
+                .expect("test_heavy.exe must be present");
+            assert_eq!(
+                target.severity,
+                Severity::Suspicious,
+                "Tick {}: test_heavy.exe must be Suspicious (score: {})",
+                tick,
+                target.score
+            );
+            assert!(target.score >= 40.0 && target.score < 70.0);
+            assert_eq!(snap.watched.len(), 1);
+            assert_eq!(snap.watched[0].state, EpisodeState::Overloaded);
         }
-        let _ = source.sample();
-        assert_eq!(source.current_scenario(), Scenario::DiskThrash);
 
-        for _ in 0..14 {
-            let _ = source.sample();
+        // 3. Culprit phase: 15 ticks (23..38)
+        for tick in 23..38 {
+            assert_eq!(
+                source.current_scenario(),
+                Scenario::Culprit,
+                "Tick {} must be Scenario::Culprit",
+                tick
+            );
+            let raw = source.sample();
+            let snap = analyzer.analyze(raw);
+            let target = snap
+                .processes
+                .iter()
+                .find(|p| p.record.name == "test_heavy.exe")
+                .expect("test_heavy.exe must be present");
+            assert_eq!(
+                target.severity,
+                Severity::Culprit,
+                "Tick {}: test_heavy.exe must be Culprit (score: {})",
+                tick,
+                target.score
+            );
+            assert!(target.score >= 70.0);
+            assert_eq!(snap.watched.len(), 1);
+            assert_eq!(snap.watched[0].state, EpisodeState::Overloaded);
         }
-        let _ = source.sample();
-        assert_eq!(source.current_scenario(), Scenario::MemoryLeak);
+
+        // 4. Cooling phase: 20 ticks (38..58)
+        for tick in 38..58 {
+            assert_eq!(
+                source.current_scenario(),
+                Scenario::Cooling,
+                "Tick {} must be Scenario::Cooling",
+                tick
+            );
+            let raw = source.sample();
+            let snap = analyzer.analyze(raw);
+            assert_eq!(
+                snap.watched.len(),
+                1,
+                "Tick {}: watched episode must be retained",
+                tick
+            );
+            assert!(
+                snap.watched[0].state == EpisodeState::Cooling
+                    || snap.watched[0].state == EpisodeState::Overloaded,
+                "Tick {}: episode state must be Cooling or transitioning",
+                tick
+            );
+        }
+
+        // 5. Expiration after retention
+        let raw = source.sample();
+        let snap = analyzer.analyze(raw);
+        let watched_cooling = snap
+            .watched
+            .iter()
+            .find(|e| e.name == "test_heavy.exe" && e.state == EpisodeState::Cooling);
+        assert!(
+            watched_cooling.is_none(),
+            "Tick 58: episode must no longer be in Cooling (recovered or removed)"
+        );
     }
 }

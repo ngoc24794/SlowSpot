@@ -209,11 +209,14 @@ impl OverloadTracker {
         }
 
         // --- Group Episode Handling ---
-        let group_culprit_key = breakdown
+        // Requirement 2: Create a group episode only when the group has >= 2 live processes
+        let group_culprit = breakdown
             .and_then(|bd| bd.group_culprit.as_ref())
-            .map(|gc| (0, gc.name.to_lowercase()));
+            .filter(|gc| gc.process_count >= 2);
 
-        if let Some(gc) = breakdown.and_then(|bd| bd.group_culprit.as_ref()) {
+        let group_culprit_key = group_culprit.map(|gc| (0, gc.name.to_lowercase()));
+
+        if let Some(gc) = group_culprit {
             let key = (0, gc.name.to_lowercase());
             if let Some(existing) = self.episodes.get_mut(&key) {
                 existing.process_count = gc.process_count;
@@ -400,6 +403,19 @@ impl OverloadTracker {
     /// Ordering: Overloaded (highest score first) -> Cooling -> Exited -> Recovered.
     pub fn watched_entries(&self) -> Vec<Episode> {
         let mut list: Vec<Episode> = self.episodes.values().cloned().collect();
+
+        // Identify group episodes that have >= 2 processes
+        let group_names: HashSet<String> = list
+            .iter()
+            .filter(|ep| ep.is_group() && ep.process_count >= 2)
+            .map(|ep| ep.name.to_lowercase())
+            .collect();
+
+        // If a group exists, list the group row once instead of separate duplicate rows
+        if !group_names.is_empty() {
+            list.retain(|ep| ep.is_group() || !group_names.contains(&ep.name.to_lowercase()));
+        }
+
         list.sort_by(|a, b| {
             let state_rank = |s: EpisodeState| match s {
                 EpisodeState::Overloaded => 0,
@@ -426,6 +442,8 @@ impl OverloadTracker {
     pub fn is_actively_watched(&self, pid: u32, name: &str) -> bool {
         if let Some(ep) = self.episodes.get(&(pid, name.to_string())) {
             ep.state == EpisodeState::Overloaded || ep.state == EpisodeState::Cooling
+        } else if let Some(group_ep) = self.episodes.get(&(0, name.to_lowercase())) {
+            group_ep.state == EpisodeState::Overloaded || group_ep.state == EpisodeState::Cooling
         } else {
             false
         }
@@ -853,5 +871,81 @@ mod tests {
             .find(|e| e.is_group())
             .expect("Must have group episode");
         assert_eq!(group_ep3.state, EpisodeState::Recovered);
+    }
+
+    #[test]
+    fn test_single_process_does_not_create_group_episode() {
+        let mut tracker = OverloadTracker::new(20, 3);
+        let p1 = make_scored(9999, "test_heavy.exe", 95.0, 95.0, ProcessKind::UserApp);
+        let procs = vec![p1];
+
+        // Breakdown with 1 process and 95% share
+        let gc = crate::model::ProcessGroupShare {
+            name: "test_heavy.exe".to_string(),
+            process_count: 1,
+            total_metric: 95.0,
+            share_percent: 95.0,
+            pids: vec![9999],
+        };
+        let bd = crate::model::PressureBreakdown {
+            resource: crate::model::OverloadedResource::Cpu,
+            system_value: 100.0,
+            resource_unit: "%",
+            top_groups: vec![gc.clone()],
+            remainder_share_percent: 5.0,
+            group_culprit: Some(gc),
+        };
+
+        let watched = tracker.update_with_breakdown(1000, &procs, Some(&bd));
+
+        // Must have exactly 1 episode (the single process), NO group episode
+        assert_eq!(
+            watched.len(),
+            1,
+            "Must have exactly 1 episode for single process"
+        );
+        assert_eq!(watched[0].pid, 9999);
+        assert!(!watched[0].is_group());
+        assert!(
+            !watched.iter().any(|e| e.is_group()),
+            "No group episode allowed when process_count < 2"
+        );
+    }
+
+    #[test]
+    fn test_group_episode_deduplicates_member_process_rows() {
+        let mut tracker = OverloadTracker::new(20, 3);
+        // Both p1 and p2 individually exceed threshold
+        let p1 = make_scored(101, "rustc.exe", 50.0, 50.0, ProcessKind::UserApp);
+        let p2 = make_scored(102, "rustc.exe", 45.0, 45.0, ProcessKind::UserApp);
+        let procs = vec![p1, p2];
+
+        let gc = crate::model::ProcessGroupShare {
+            name: "rustc.exe".to_string(),
+            process_count: 2,
+            total_metric: 95.0,
+            share_percent: 95.0,
+            pids: vec![101, 102],
+        };
+        let bd = crate::model::PressureBreakdown {
+            resource: crate::model::OverloadedResource::Cpu,
+            system_value: 100.0,
+            resource_unit: "%",
+            top_groups: vec![gc.clone()],
+            remainder_share_percent: 5.0,
+            group_culprit: Some(gc),
+        };
+
+        let watched = tracker.update_with_breakdown(1000, &procs, Some(&bd));
+
+        // When group exists, only the group row is listed in watched_entries, no duplicate individual rows
+        assert_eq!(
+            watched.len(),
+            1,
+            "Must list group row once instead of separate duplicate rows"
+        );
+        assert!(watched[0].is_group());
+        assert_eq!(watched[0].process_count, 2);
+        assert_eq!(watched[0].name, "rustc.exe");
     }
 }

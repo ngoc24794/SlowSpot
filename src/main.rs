@@ -81,7 +81,7 @@ fn main() {
         let mut cfg = AppConfig::default();
         if options.demo {
             // Accelerated watch retention for demo scenario lifecycle (Overloaded -> Cooling -> Recovered <= 60s)
-            cfg.watch_retention_secs = 25;
+            cfg.watch_retention_secs = 20;
         }
         let mut handle = slowspot::collector::spawn(source, cfg, on_snapshot);
 

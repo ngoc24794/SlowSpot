@@ -102,6 +102,8 @@ pub struct ViewState {
     pub paused_snapshot: Option<SystemSnapshot>,
     /// Currently selected process PID for details and keyboard navigation.
     pub selected_pid: Option<u32>,
+    /// Set of expanded group episode names in the watched processes panel.
+    pub expanded_groups: HashSet<String>,
 }
 
 impl Default for ViewState {
@@ -129,6 +131,7 @@ impl ViewState {
             is_paused: false,
             paused_snapshot: None,
             selected_pid: None,
+            expanded_groups: HashSet::new(),
         }
     }
 

@@ -26,6 +26,8 @@ Toàn bộ màu sắc trong SlowSpot được định nghĩa tập trung trong m
 | :--- | :--- | :--- | :--- |
 | `COLOR_BG` | `#0F172A` (15, 23, 42) | Nền chính của toàn bộ cửa sổ ứng dụng (Slate 900) | — (Nền cơ sở) |
 | `COLOR_CARD` | `#1B2336` (27, 35, 54) | Bề mặt các thẻ chứa nội dung (Banner, Card, Bảng) | 1.15:1 so với nền |
+| `COLOR_BG_CARD_CULPRIT` | `#261014` (38, 16, 20) | Nền thẻ thủ phạm chính (dark crimson), tương phản 4.81:1 với viền đỏ | **4.8:1** (Vượt chuẩn WCAG AA >= 4.5) |
+| `COLOR_BG_CARD_SUSPICIOUS` | `#281808` (40, 24, 8) | Nền thẻ tiến trình đáng ngờ (dark amber), tương phản 7.99:1 với viền vàng | **8.0:1** (Vượt chuẩn WCAG AA >= 4.5) |
 | `COLOR_MUTED` | `#272F42` (39, 47, 66) | Bề mặt hàng hover, ô tìm kiếm, chip phụ (Slate 800) | 1.35:1 so với nền |
 | `COLOR_SELECTED_ROW` | `#24334D` (36, 51, 77) | Nền của hàng đang được người dùng chọn | 1.45:1 so với nền |
 | `COLOR_BORDER` | `#475569` (71, 85, 105) | Viền hộp thoại, khung phân cách rõ nét (Slate 600) | 3.2:1 (Đạt chuẩn đồ hoạ) |
@@ -44,6 +46,10 @@ Thuật toán tính độ sáng tương đối ($L$) và tỉ số tương phả
 $$L = 0.2126 \times R_{\text{linear}} + 0.7152 \times G_{\text{linear}} + 0.0722 \times B_{\text{linear}}$$
 $$\text{Contrast Ratio} = \frac{L_1 + 0.05}{L_2 + 0.05}$$
 Toàn bộ chữ hiển thị cho người dùng đều vượt ngưỡng yêu cầu tối thiểu 4.5:1 dành cho chữ thường theo chuẩn WCAG 2.1 cấp độ AA.
+Bộ token màu theo cấp độ (Suspicious vs Culprit) được kiểm chứng tự động tại `ui::palette::tests::test_level_color_token_mapping`:
+- Viền và chữ màu hổ phách `#F59E0B` trên nền tối hổ phách `#281808` đạt tỉ số tương phản 7.99:1.
+- Viền và chữ màu đỏ `#EF4444` trên nền tối đỏ thẫm `#261014` đạt tỉ số tương phản 4.81:1.
+- Chữ chính `COLOR_FOREGROUND` và chữ phụ `COLOR_MUTED_FOREGROUND` trên cả hai nền đều đạt tương phản > 6.6:1.
 
 ---
 
@@ -91,8 +97,12 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 
 ### 5.2. Thẻ Thủ Phạm Chính (Top Culprit Hero Card)
 - **Bố cục thu gọn (Compact Height)**: Padding bên trong 12px x 8px, tối ưu chiều cao để dành trọn không gian cho bảng tiến trình hiển thị >= 10 hàng ở cửa sổ 1000x680.
-- **Khi có thủ phạm**:
-  - Dòng 1: Tiêu đề `THỦ PHẠM CHÍNH` đỏ rực, Badge mức độ (`Thủ phạm` ◆ / `Đáng ngờ` ▲), Badge bảo vệ 🔒 (nếu là tiến trình cốt lõi), Điểm số góc phải `Điểm thủ phạm: 92/100`.
+- **Khi có thủ phạm hoặc tiến trình đáng ngờ**:
+  - Khung viền (Border), màu nền (Background), tiêu đề (Title), màu điểm số và huy hiệu cấp độ tuân thủ nghiêm ngặt theo cấp độ nghiêm trọng:
+    - **Mức Đáng ngờ (Suspicious - điểm 40–69)**: Viền màu vàng hổ phách `#F59E0B` (`COLOR_WARNING`), nền tối ánh hổ phách `#281808` (`COLOR_BG_CARD_SUSPICIOUS`), tiêu đề `ĐÁNG NGỜ` màu hổ phách, điểm số hiển thị màu hổ phách, huy hiệu cấp độ hình tam giác cảnh báo ▲ + nhãn `Đáng ngờ`.
+    - **Mức Thủ phạm (Culprit - điểm >= 70)**: Viền màu đỏ `#EF4444` (`COLOR_DESTRUCTIVE`), nền tối ánh đỏ thẫm `#261014` (`COLOR_BG_CARD_CULPRIT`), tiêu đề `THỦ PHẠM CHÍNH` màu đỏ, điểm số hiển thị màu đỏ, huy hiệu cấp độ hình thoi nguy hiểm ◆ + nhãn `Thủ phạm`.
+  - Luôn kết hợp biểu tượng hình học + nhãn văn bản (icon + text label) song hành cùng màu sắc để màu sắc không bao giờ là tín hiệu thị giác duy nhất (WCAG 1.4.1).
+  - Tỷ lệ tương phản chữ trên nền tối màu luôn đạt >= 4.5:1.
   - Dòng 2: Tên file thực thi to bản (15px), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
   - Dòng 3: Dãy nút hành động phân cấp trực quan:
     1. **Nút Chính (Primary)**: `Đóng an toàn` (Tô đặc màu xanh dương `COLOR_INFO`, chữ tối màu `COLOR_BG` đậm nét, không viền stroke giả lập focus).
@@ -125,7 +135,10 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
   - Toàn bộ ô dữ liệu (`render_cell`) và bề mặt hàng bảng áp dụng cơ chế giao cắt `ui.clip_rect().intersect(...)`, đảm bảo khi cuộn lên đỉnh hay cuộn xuống đáy, tuyệt đối không một dòng chữ hay đồ hoạ tiến trình nào có thể vẽ đè lên tiêu đề cột, thanh tìm kiếm, các biểu đồ sparklines, banner đỉnh phía trên, hoặc thanh trạng thái đáy.
 - **Mật độ hiển thị cao & Chiều cao hàng ~28px**: Mỗi hàng có chiều cao chuẩn 28px với khoảng cách đệm `item_spacing.y = 0.0px`, đảm bảo hiển thị đồng thời >= 12 hàng ở kích thước 1000x680 và >= 8 hàng ở kích thước tối thiểu 760x520.
 - **Cột Loại tiến trình (Giảm nhiễu thị giác)**: Tiến trình ứng dụng thông thường (`UserApp`) được hiển thị bằng chữ màu xám mờ (`COLOR_MUTED_FOREGROUND`), không có khung viền dạng nút bấm để tránh nhiễu và không gây hiểu lầm là nút bấm được. Chỉ tiến trình dịch vụ nền (`BackgroundService`) và tiến trình hệ thống cốt lõi (`SystemCritical` kèm ổ khoá 🔒) mới hiển thị dạng huy hiệu.
-- **Hiệu ứng chọn hàng (Selection State)**: Hàng đang chọn đổi nền sang tông xanh thẫm và có thanh nhấn màu xanh dương (`COLOR_INFO`) dày 3px ở cạnh trái.
+- **Làm nổi bật hàng theo cấp độ (Level Highlight)**:
+  - Hàng thủ phạm (Điểm >= 70): Nền hàng được phủ dải màu đỏ nhạt `COLOR_DESTRUCTIVE` (alpha 12%), huy hiệu theo dõi viền đỏ, khi được chọn có thanh nhấn cạnh trái màu đỏ.
+  - Hàng đáng ngờ (Điểm 40–69): Nền hàng được phủ dải màu vàng hổ phách `COLOR_WARNING` (alpha 10%), huy hiệu theo dõi viền vàng, khi được chọn có thanh nhấn cạnh trái màu vàng.
+- **Hiệu ứng chọn hàng (Selection State)**: Hàng đang chọn đổi nền sang tông xanh thẫm (`COLOR_SELECTED_ROW`) và có thanh nhấn dày 3px ở cạnh trái phản ánh màu cấp độ (Đỏ cho Thủ phạm, Vàng cho Đáng ngờ, Xanh dương `COLOR_INFO` cho tiến trình bình thường).
 - **Cột Điểm tiến trình**: Thanh tiến trình mini 38px bo góc kết hợp số điểm 0..100 đặt bên ngoài cạnh phải thanh, không còn tình trạng chữ đè lên vạch màu gây khó đọc.
 - **Nhận diện Tiến trình Hệ thống**: Các tiến trình được bảo vệ (`SystemCritical`) có biểu tượng ổ khoá 🔒 vẽ bằng Painter cạnh tên, tooltip hiển thị đầy đủ đường dẫn tệp thực thi (`exe_path`).
 - **Trạng thái Tìm kiếm Rỗng**: Khi không có tiến trình khớp với từ khoá tìm kiếm, bảng hiển thị thông điệp thân thiện `Không tìm thấy tiến trình nào phù hợp.`
@@ -206,10 +219,11 @@ Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Wind
 - **Trạng thái rỗng**: Khi không có tiến trình nào được theo dõi, panel tự động thu gọn hoàn toàn (chiều cao = 0) để nhường toàn bộ diện tích cho bảng tiến trình, đảm bảo giao diện luôn hiển thị >= 20 dòng ở kích thước chuẩn.
 - **Thẻ dòng tiến trình theo dõi**:
   - Huy hiệu trạng thái kết hợp hình học và văn bản (chuẩn WCAG AA):
-    - `Quá tải` (Octagon đỏ): Đang vượt ngưỡng quá tải.
-    - `Hạ nhiệt (còn Xs)` (Circle vàng): Đang trong giai đoạn làm mát 120s kèm đếm lùi thời gian.
-    - `Phục hồi` (Circle xanh lá): Đã qua giai đoạn làm mát an toàn.
-    - `Đã thoát` (Diamond xám): Tiến trình đã dừng hoạt động.
+    - `Thủ phạm` (Diamond ◆ đỏ `#EF4444`): Đang trong đợt quá tải mức thủ phạm (điểm >= 70).
+    - `Đáng ngờ` (Triangle ▲ vàng hổ phách `#F59E0B`): Đang trong đợt quá tải mức nghi ngờ (điểm 40–69).
+    - `Hạ nhiệt (còn Xs)` (Circle ● vàng): Đang trong giai đoạn làm mát (20s ở chế độ demo, 120s ở chế độ thường) kèm đếm lùi thời gian cập nhật mỗi giây.
+    - `Đã hồi phục` (Circle ● xanh lá): Đã qua giai đoạn làm mát an toàn.
+    - `Đã thoát` (Diamond ◆ xám): Tiến trình đã dừng hoạt động.
   - Tên tiến trình, PID (hoặc nhãn `rustc.exe ×3` nếu là nhóm tiến trình).
   - Thời gian: "Từ HH:MM:SS (đã MM:SS)".
   - Thống kê đỉnh điểm: "Đỉnh CPU: 88.0% • RAM: 1.2 GB • Đĩa: 45.0 MB/s".
