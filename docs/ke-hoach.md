@@ -6,15 +6,15 @@ Dependency đã được duyệt: `eframe` 0.37 (feature `glow`, tắt `wgpu`), 
 
 ## Danh sách task
 
-| # | Task (nhánh) | File được phép sửa | Tiêu chí xong |
-|---|---|---|---|
-| 1 | `scaffold` | `Cargo.toml`, `.cargo/config.toml`, `src/main.rs`, `src/lib.rs`, `src/*/mod.rs` (khung rỗng), `assets/fonts/*`, `rustfmt.toml` | Có crate `slowspot` (lib + bin), `+crt-static`, profile release theo `docs/kien-truc.md`, font Noto Sans nhúng + OFL.txt, mở được cửa sổ egui trống hiển thị tiếng Việt. build/test/clippy/fmt pass |
-| 2 | `model-analyzer` | `src/model.rs`, `src/analyzer/**` | Kiểu dữ liệu `ProcessRecord`, `SystemSnapshot`...; `SafetyFilter`; `CulpritEngine` đúng công thức trong kiến trúc; damping 3 chu kỳ. Thuần logic, không gọi OS. Unit test đủ các case ở mục 7.1 kiến trúc |
-| 3 | `collector` | `src/collector/**`, `src/config.rs` | Thread nền 1 giây/lần dùng `sysinfo`, tính delta CPU/disk, gửi `SystemSnapshot` qua `mpsc`; có `MockSystemCollector` cho test; không crash khi Access Denied; test bằng mock |
-| 4 | `platform` | `src/platform/**` | `graceful_close` (WM_CLOSE), `force_kill` (TerminateProcess), `open_location`, `show_error_box` (MessageBoxW); từ chối kill tiến trình trong whitelist ở tầng này; unit test cho phần logic không cần OS (bản thật kiểm thủ công) |
-| 5 | `ui` | `src/ui/**` | Giao diện: banner trạng thái, thẻ thủ phạm chính, bảng tiến trình có tìm kiếm và sắp xếp ổn định, sparkline 60s, nút hành động (2 cấp), "Bỏ qua thủ phạm này"; tiếng Việt; chạy được với `MockSystemCollector` (`--demo`) |
-| 6 | `wiring` | `src/main.rs`, `src/app.rs` | Nối collector, analyzer, ui, platform; lỗi OpenGL thì hiện MessageBox tiếng Việt rồi thoát; repaint theo sự kiện; ứng dụng chạy thật được |
-| 7 | `package` | `build.rs`(nếu có), `Cargo.toml` (chỉ profile), `scripts/package.ps1`, `README.md`, `docs/*` | `cargo build --release` ra `dist/slowspot.exe` (+ zip), script đo kiểm; cập nhật README và docs theo thực tế |
+| # | Task (nhánh) | File được phép sửa | Tiêu chí xong | Trạng thái |
+|---|---|---|---|---|
+| 1 | `scaffold` | `Cargo.toml`, `.cargo/config.toml`, `src/main.rs`, `src/lib.rs`, `src/*/mod.rs` (khung rỗng), `assets/fonts/*`, `rustfmt.toml` | Có crate `slowspot` (lib + bin), `+crt-static`, profile release theo `docs/kien-truc.md`, font Noto Sans nhúng + OFL.txt, mở được cửa sổ egui trống hiển thị tiếng Việt. build/test/clippy/fmt pass | **ĐÃ XONG** |
+| 2 | `model-analyzer` | `src/model.rs`, `src/analyzer/**` | Kiểu dữ liệu `ProcessRecord`, `SystemSnapshot`...; `SafetyFilter`; `CulpritEngine` đúng công thức trong kiến trúc; damping 3 chu kỳ. Thuần logic, không gọi OS. Unit test đủ các case ở mục 7.1 kiến trúc | **ĐÃ XONG** |
+| 3 | `collector` | `src/collector/**`, `src/config.rs` | Thread nền 1 giây/lần dùng `sysinfo`, tính delta CPU/disk, gửi `SystemSnapshot` qua `mpsc`; có `MockSystemCollector` cho test; không crash khi Access Denied; test bằng mock | **ĐÃ XONG** |
+| 4 | `platform` | `src/platform/**` | `graceful_close` (WM_CLOSE), `force_kill` (TerminateProcess), `open_location`, `show_error_box` (MessageBoxW); từ chối kill tiến trình trong whitelist ở tầng này; unit test cho phần logic không cần OS (bản thật kiểm thủ công) | **ĐÃ XONG** |
+| 5 | `ui` | `src/ui/**` | Giao diện: banner trạng thái, thẻ thủ phạm chính, bảng tiến trình có tìm kiếm và sắp xếp ổn định, sparkline 60s, nút hành động (2 cấp), "Bỏ qua thủ phạm này"; tiếng Việt; chạy được với `MockSystemCollector` (`--demo`) | **ĐÃ XONG** |
+| 6 | `wiring` | `src/main.rs`, `src/app.rs` | Nối collector, analyzer, ui, platform; lỗi OpenGL thì hiện MessageBox tiếng Việt rồi thoát; repaint theo sự kiện; ứng dụng chạy thật được | **ĐÃ XONG** |
+| 7 | `package` | `Cargo.toml` (metadata), `scripts/package.ps1`, `scripts/verify.ps1`, `README.md`, `docs/*` | `cargo build --release` ra `dist/slowspot.exe` (+ zip), script đo kiểm; cập nhật README và docs theo thực tế | **ĐÃ XONG** |
 
 ## Cách review mỗi task (orchestrator)
 1. Đọc `.agents/reports/<task>.md` và `git diff main...agent/<task>`; xác nhận không có file ngoài phạm vi, secret, lệnh lạ; code và comment bằng tiếng Anh.
