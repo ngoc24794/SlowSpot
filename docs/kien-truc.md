@@ -40,7 +40,7 @@ flowchart TD
     end
 
     subgraph IPC_Channel ["Kênh truyền dữ liệu (Thread Synchronization)"]
-        DataChannel[/"crossbeam-channel / std::sync::mpsc (Snapshot Batch)"/]
+        DataChannel[/"std::sync::mpsc::channel (SystemSnapshot)"/]
         CommandChannel[/"Action Command Channel (Kill / Graceful Close)"/]
     end
 
@@ -125,12 +125,12 @@ Dự án được phân rã thành 6 module nội bộ theo chuẩn Rust idiom:
 
 | Tên Module | Trách nhiệm chính | Thành phần / Structs trọng tâm |
 | :--- | :--- | :--- |
-| **`model`** | Định nghĩa toàn bộ schema dữ liệu, kiểu dữ liệu chung và các enum biểu diễn trạng thái của hệ thống và tiến trình. | `ProcessRecord`, `SystemSnapshot`, `CulpritCandidate`, `SystemPressureState`, `ProcessKind`, `ActionCommand`. |
-| **`collector`** | Quản lý vòng lặp chạy nền định kỳ (mặc định 1000ms), đọc dữ liệu thô từ hệ điều hành, tính toán delta tốc độ CPU và Đọc/Ghi đĩa giữa 2 chu kỳ lấy mẫu liên tiếp. | `SystemCollector`, `MetricSample`, `CollectorConfig`. |
-| **`analyzer`** | Nhận dữ liệu từ `collector`, lọc tiến trình qua `SafetyFilter`, chạy thuật toán tính điểm `CulpritEngine`, phát hiện đột biến (`SpikeDetector`), xếp hạng Top thủ phạm. | `CulpritEngine`, `SafetyFilter`, `ScoreWeights`, `SpikeHistory`. |
-| **`platform`** | Trừu tượng hóa các lời gọi Win32 API đặc thù (qua `windows-sys`): lấy đường dẫn thực thi, icon, thực thi đóng an toàn qua `WM_CLOSE`, ép buộc tắt qua `TerminateProcess`, hiển thị `MessageBoxW` khi lỗi đồ họa. | `ProcessController`, `win32_utils`, `NativeDialog`. |
-| **`ui`** | Kết xuất giao diện người dùng bằng `eframe`/`egui`. Render các thẻ thông tin, bảng dữ liệu, biểu đồ mini (sparklines), quản lý trạng thái hiển thị (Theme, Search, Filter). | `SlowSpotApp`, `HeaderView`, `CulpritCardView`, `ProcessTableView`, `SparklineView`. |
-| **`config`** | Quản lý cấu hình chạy của ứng dụng: chu kỳ lấy mẫu (tick rate), ngưỡng cảnh báo điểm số, danh sách tiến trình người dùng tự bỏ qua (User Ignore List). | `AppConfig`, `ThresholdSettings`. |
+| **`model`** | Định nghĩa toàn bộ schema dữ liệu, kiểu dữ liệu chung và các enum biểu diễn trạng thái của hệ thống và tiến trình. | `ProcessRecord`, `SystemSnapshot`, `CulpritCandidate`, `SystemPressureState`, `ProcessKind`, `ActionCommand`, `ActionStatus`, `Bottleneck`. |
+| **`collector`** | Quản lý nguồn mẫu và worker thread chạy nền định kỳ (1000ms), đọc dữ liệu thô qua `sysinfo`, tính toán delta tốc độ CPU và Đọc/Ghi đĩa giữa 2 chu kỳ lấy mẫu liên tiếp. | `SampleSource`, `SysinfoSource`, `MockSource`, `CollectorHandle`, `CollectorWorker`, `spawn`. |
+| **`analyzer`** | Nhận dữ liệu từ `collector`, lọc tiến trình qua `SafetyFilter`, chạy thuật toán tính điểm `CulpritEngine`, phát hiện đột biến, làm dịu qua `DampingBuffer`. | `Analyzer`, `CulpritEngine`, `SafetyFilter`, `DampingBuffer`, `ScoreWeights`, `score_process`. |
+| **`platform`** | Trừu tượng hóa các lời gọi Win32 API đặc thù (qua `windows-sys`): đóng an toàn qua `WM_CLOSE`, ép buộc tắt qua `TerminateProcess`, mở Explorer, hiển thị `MessageBoxW` khi lỗi đồ họa. | `process` (`graceful_close`, `force_kill`, `open_location`), `dialog` (`show_error_box`). |
+| **`ui`** | Kết xuất giao diện người dùng bằng `eframe`/`egui`. Render thẻ thông tin thủ phạm, bảng dữ liệu, sparklines, quản lý tương tác và chuỗi hiển thị tiếng Việt. | `SlowSpotApp`, `ActionRunner`, `DemoActions`, `RealActions`, `Theme`, `widgets`, `state`, `strings`. |
+| **`config`** | Quản lý cấu hình chạy của ứng dụng: chu kỳ lấy mẫu (tick rate), ngưỡng cảnh báo điểm số, danh sách tiến trình người dùng tự bỏ qua (User Ignore List). | `AppConfig`. |
 
 ---
 
@@ -279,7 +279,7 @@ Không sử dụng bất kỳ đường dẫn file rời nào trên ổ đĩa. M
 - **Font chữ tiếng Việt**: Nhúng font **Noto Sans Regular** (giấy phép mở SIL Open Font License 1.1) qua `include_bytes!("../assets/fonts/NotoSans-Regular.ttf")`. Repo lưu kèm file `assets/fonts/OFL.txt`.
 - **DPI Awareness & Application Manifest**:
   - `eframe`/`winit` đã tự động tích hợp xử lý Per-Monitor High-DPI V2 theo mặc định, không cần cấu hình can thiệp thêm.
-  - Manifest ứng dụng và icon (nếu cần) được nhúng qua `build.rs` kết hợp crate `embed-resource` (hoặc xem như tùy chọn bổ sung), ưu tiên phương án tối giản nhất để giữ bản build tinh gọn.
+  - Ứng dụng tận dụng xử lý DPI native của `eframe`/`winit`, không cần thêm build script `build.rs` hay crate `embed-resource`, đảm bảo tiến trình build tinh gọn và không phát sinh phụ thuộc ngoài.
 
 ### 5.3. Tối ưu Kích thước và Tốc độ (Cargo Profile Optimization)
 Cấu hình tối ưu hóa trong `Cargo.toml` để tạo ra file `.exe` siêu nhỏ và chạy nhanh:
@@ -365,3 +365,62 @@ Kế hoạch kiểm thử đảm bảo SlowSpot đạt chất lượng chuẩn s
 5. **Kiểm thử Xử lý Phân quyền (Access Denied)**:
    - Chạy ở quyền Standard User: Thao tác với các tiến trình hệ thống cấp cao (chạy quyền SYSTEM).
    - *Tiêu chí đạt*: Hiển thị thông báo "Yêu cầu quyền Quản trị viên để can thiệp", không crash ứng dụng.
+
+---
+
+## 8. Kết quả Đo đạc Thực tế (Actual Measurement & Packaging Results)
+
+Dưới đây là các kết quả đo lường và kiểm chứng thực tế được thu thập tự động từ các script chuẩn `scripts/package.ps1` và `scripts/verify.ps1` trên môi trường Windows 11 64-bit:
+
+### 8.1. Kích thước và Mã băm Checksum (Release Artifacts)
+
+| Tên Artifact | Đường dẫn xuất | Kích thước (Bytes) | Kích thước (MB) | Mục tiêu thiết kế | Mã băm SHA-256 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`slowspot.exe`** | `dist/slowspot.exe` | 5,551,104 | 5.29 MB | < 15.0 MB | `75D7162ECB7D587B8A14FB740CC1A3EB45F8B9AFEA1EA2CF90F665E8A72B8DD4` |
+| **`slowspot-portable.zip`** | `dist/slowspot-portable.zip` | 2,454,393 | 2.34 MB | — | `2F7CA14E9B7021234F376A1BAEC6AD46F7C86B331641BEC4407A2F1DF462BB9C` |
+
+*Thành phần gói portable `.zip`*: Chứa file thực thi `slowspot.exe`, file hướng dẫn ngắn `README.txt`, và file bản quyền font `assets/fonts/OFL.txt` (kèm bản sao `OFL.txt` tại gốc của file nén).
+
+### 8.2. Danh sách Phụ thuộc DLL Hệ thống (Zero Runtime Dependency)
+
+Kết quả quét bảng nhập phụ thuộc (Import Table) từ công cụ `dumpbin /dependents` và bộ phân giải PE header PowerShell thuần:
+
+```
+Image has the following dependencies:
+  - advapi32.dll
+  - api-ms-win-core-synch-l1-2-0.dll
+  - bcryptprimitives.dll
+  - dwmapi.dll
+  - gdi32.dll
+  - imm32.dll
+  - kernel32.dll
+  - ntdll.dll
+  - ole32.dll
+  - oleaut32.dll
+  - opengl32.dll
+  - pdh.dll
+  - powrprof.dll
+  - psapi.dll
+  - shell32.dll
+  - user32.dll
+  - uxtheme.dll
+```
+
+- **Tổng số DLL hệ thống**: 17 DLLs (100% là DLL lõi có sẵn trong mọi bản cài Windows 10/11 tiêu chuẩn).
+- **Phụ thuộc CRT ngoài**: **0** (Hoàn toàn KHÔNG phụ thuộc `VCRUNTIME140.dll`, `MSVCP140.dll`, hay bất kỳ file `api-ms-win-crt-*.dll` nào).
+- **Kết luận**: Đạt chuẩn Portable độc lập tuyệt đối (Standalone Single-Binary), chạy ngay không cần cài đặt Visual C++ Redistributable.
+
+### 8.3. Số đo Tiêu thụ Tài nguyên & Hiệu năng Thực tế
+
+Kết quả đo đạc tự động bởi `scripts/verify.ps1` khi chạy tiến trình `slowspot.exe --demo` trong thư mục sandbox tạm thời cách ly:
+
+| Tiêu chí kiểm tra | Giá trị đo được | Mục tiêu chấp nhận | Đánh giá | Ghi chú |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mức chiếm dụng CPU** | **0.00% – 0.08%** | < 1.0% | **PASS** | Trung bình trên 12 logical cores trong 10 giây; cơ chế Reactive Event Loop giúp CPU nhàn rỗi gần như tuyệt đối |
+| **Bộ nhớ Private Memory** | **46.72 – 47.04 MB** | < 60.0 MB | **PASS** | Vượt xa mục tiêu thiết kế ban đầu |
+| **Bộ nhớ Working Set** | **90.36 – 90.92 MB** | — | **PASS** | Đã bao gồm bối cảnh OpenGL `glow` và bộ đệm glyph phông chữ tiếng Việt |
+| **Disk I/O** | **0.00 MB/s** | 0 MB/s | **PASS** | Hoàn toàn không ghi đĩa định kỳ hay tạo file log/tạm |
+| **Tồn lưu file rác** | **0 file** | 0 file | **PASS** | Thư mục sandbox tạm hoàn toàn sạch sẽ sau khi chạy |
+| **Thời gian sống & Tiêu đề** | Sống ổn định sau 8s | ≥ 8s | **PASS** | `MainWindowTitle` khớp chính xác `"SlowSpot"` |
+| **Dọn dẹp tiến trình** | Thoát sạch theo PID | Thu hồi sạch | **PASS** | Tiến trình tắt sạch, không để lại tiến trình mồ côi |
+

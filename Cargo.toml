@@ -2,6 +2,13 @@
 name = "slowspot"
 version = "0.1.0"
 edition = "2021"
+description = "Lightweight Windows performance monitor identifying PC bottleneck culprits"
+authors = ["SlowSpot Team"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/slowspot/slowspot"
+keywords = ["windows", "system-monitor", "performance", "gui", "portable"]
+categories = ["command-line-utilities", "gui"]
 
 [dependencies]
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
