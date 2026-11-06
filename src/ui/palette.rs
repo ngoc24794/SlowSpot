@@ -3,7 +3,7 @@
 
 use eframe::egui::Color32;
 
-use crate::model::{PressureState, Severity};
+use crate::model::{PressureState, ScoredProcess, Severity, SystemTotals};
 use crate::ui::strings;
 
 // --- Color Tokens (Swiss Minimalism / Dark Dashboard) ---
@@ -200,6 +200,85 @@ pub fn pressure_indicator(
             PressureShape::Circle,
             COLOR_MUTED_FOREGROUND,
         ),
+    }
+}
+
+/// Header status badge visual presentation info.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeaderBadgeInfo {
+    pub level: Severity,
+    pub shape: PressureShape,
+    pub color: Color32,
+    pub text: String,
+}
+
+/// Evaluates the unified system status level combining culprit presence and system pressure.
+///
+/// Follows the same level mapping as the hero card:
+/// - Normal: no culprit and Smooth pressure.
+/// - Suspicious: suspicious culprit or Strained pressure.
+/// - Culprit/Overloaded: culprit process or Overloaded pressure.
+pub fn evaluate_system_level(culprit: Option<&ScoredProcess>, pressure: PressureState) -> Severity {
+    let pressure_level = match pressure {
+        PressureState::Overloaded => Severity::Culprit,
+        PressureState::Strained => Severity::Suspicious,
+        PressureState::Smooth => Severity::Normal,
+    };
+    if let Some(target) = culprit {
+        std::cmp::max(target.severity, pressure_level)
+    } else {
+        pressure_level
+    }
+}
+
+/// Evaluates the header status badge presentation (shape, color, text).
+/// Single source of truth for level -> badge/color.
+pub fn evaluate_header_badge(
+    culprit: Option<&ScoredProcess>,
+    pressure: PressureState,
+    totals: Option<&SystemTotals>,
+) -> HeaderBadgeInfo {
+    let level = evaluate_system_level(culprit, pressure);
+    match level {
+        Severity::Normal => HeaderBadgeInfo {
+            level,
+            shape: PressureShape::Circle,
+            color: COLOR_ACCENT_OK,
+            text: strings::PRESSURE_SMOOTH.to_string(),
+        },
+        Severity::Suspicious => HeaderBadgeInfo {
+            level,
+            shape: PressureShape::Triangle,
+            color: COLOR_WARNING,
+            text: strings::STATUS_SUSPICIOUS.to_string(),
+        },
+        Severity::Culprit => {
+            let text = if pressure == PressureState::Overloaded {
+                if let Some(t) = totals {
+                    crate::analyzer::format_pressure_badge_text(t, PressureState::Overloaded)
+                } else {
+                    format!("{} tài nguyên", strings::PRESSURE_OVERLOADED)
+                }
+            } else if let Some(target) = culprit {
+                let res_name = match target.main_bottleneck {
+                    crate::model::Bottleneck::Cpu => "CPU",
+                    crate::model::Bottleneck::Memory => "RAM",
+                    crate::model::Bottleneck::Disk => "đĩa",
+                    crate::model::Bottleneck::None => "tài nguyên",
+                };
+                format!("{} {}", strings::PRESSURE_OVERLOADED, res_name)
+            } else if let Some(t) = totals {
+                crate::analyzer::format_pressure_badge_text(t, PressureState::Overloaded)
+            } else {
+                format!("{} tài nguyên", strings::PRESSURE_OVERLOADED)
+            };
+            HeaderBadgeInfo {
+                level,
+                shape: PressureShape::Octagon,
+                color: COLOR_DESTRUCTIVE,
+                text,
+            }
+        }
     }
 }
 
@@ -416,5 +495,84 @@ mod tests {
         assert_eq!(level_tokens_for_score(69.9), susp);
         assert_eq!(level_tokens_for_score(70.0), culp);
         assert_eq!(level_tokens_for_score(99.1), culp);
+    }
+
+    #[test]
+    fn test_evaluate_header_badge_levels() {
+        use crate::model::{Bottleneck, ProcessKind, ProcessRecord};
+
+        let make_proc = |severity: Severity, bottleneck: Bottleneck| ScoredProcess {
+            record: ProcessRecord {
+                pid: 1234,
+                parent_pid: None,
+                name: "heavy.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 50.0,
+                memory_bytes: 1024 * 1024 * 1024,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: ProcessKind::UserApp,
+            score: match severity {
+                Severity::Normal => 20.0,
+                Severity::Suspicious => 55.0,
+                Severity::Culprit => 85.0,
+            },
+            severity,
+            main_bottleneck: bottleneck,
+            killable: true,
+        };
+
+        let totals = SystemTotals {
+            cpu_percent: 30.0,
+            memory_used_bytes: 4 * 1024 * 1024 * 1024,
+            memory_total_bytes: 16 * 1024 * 1024 * 1024,
+            disk_bps: 100.0,
+        };
+
+        // 1. Normal: Smooth pressure and no culprit
+        let b_normal = evaluate_header_badge(None, PressureState::Smooth, Some(&totals));
+        assert_eq!(b_normal.level, Severity::Normal);
+        assert_eq!(b_normal.color, COLOR_ACCENT_OK);
+        assert_eq!(b_normal.shape, PressureShape::Circle);
+        assert_eq!(b_normal.text, "Mượt mà");
+
+        // 2. Suspicious: Suspicious culprit with Smooth pressure
+        let susp_proc = make_proc(Severity::Suspicious, Bottleneck::Cpu);
+        let b_susp_culprit =
+            evaluate_header_badge(Some(&susp_proc), PressureState::Smooth, Some(&totals));
+        assert_eq!(b_susp_culprit.level, Severity::Suspicious);
+        assert_eq!(b_susp_culprit.color, COLOR_WARNING);
+        assert_eq!(b_susp_culprit.shape, PressureShape::Triangle);
+        assert_eq!(b_susp_culprit.text, "Có dấu hiệu chậm");
+
+        // 3. Suspicious: Strained pressure without culprit
+        let b_strained = evaluate_header_badge(None, PressureState::Strained, Some(&totals));
+        assert_eq!(b_strained.level, Severity::Suspicious);
+        assert_eq!(b_strained.color, COLOR_WARNING);
+        assert_eq!(b_strained.shape, PressureShape::Triangle);
+        assert_eq!(b_strained.text, "Có dấu hiệu chậm");
+
+        // 4. Culprit: Culprit process with Smooth pressure (names culprit resource)
+        let culp_proc = make_proc(Severity::Culprit, Bottleneck::Cpu);
+        let b_culp = evaluate_header_badge(Some(&culp_proc), PressureState::Smooth, Some(&totals));
+        assert_eq!(b_culp.level, Severity::Culprit);
+        assert_eq!(b_culp.color, COLOR_DESTRUCTIVE);
+        assert_eq!(b_culp.shape, PressureShape::Octagon);
+        assert_eq!(b_culp.text, "Quá tải CPU");
+
+        // 5. Culprit/Overload: Overloaded pressure with high CPU
+        let overloaded_totals = SystemTotals {
+            cpu_percent: 95.0,
+            memory_used_bytes: 4 * 1024 * 1024 * 1024,
+            memory_total_bytes: 16 * 1024 * 1024 * 1024,
+            disk_bps: 100.0,
+        };
+        let b_overload =
+            evaluate_header_badge(None, PressureState::Overloaded, Some(&overloaded_totals));
+        assert_eq!(b_overload.level, Severity::Culprit);
+        assert_eq!(b_overload.color, COLOR_DESTRUCTIVE);
+        assert_eq!(b_overload.shape, PressureShape::Octagon);
+        assert_eq!(b_overload.text, "Quá tải CPU");
     }
 }

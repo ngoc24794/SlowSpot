@@ -179,7 +179,7 @@ pub fn render_process_row(
         COLOR_DESTRUCTIVE.gamma_multiply(0.12)
     } else if proc.severity == Severity::Suspicious {
         COLOR_WARNING.gamma_multiply(0.10)
-    } else if group_count.is_some() {
+    } else if group_count.is_some_and(|c| c >= 2) {
         COLOR_INFO.gamma_multiply(0.08)
     } else if row_idx % 2 == 1 {
         Color32::from_rgba_unmultiplied(255, 255, 255, 4)
@@ -234,7 +234,9 @@ pub fn render_process_row(
                 widgets::watched_tag(ui, proc.severity);
             }
             if let Some(count) = group_count {
-                widgets::group_tag(ui, count);
+                if count >= 2 {
+                    widgets::group_tag(ui, count);
+                }
             }
 
             let label = egui::Label::new(

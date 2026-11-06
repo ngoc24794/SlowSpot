@@ -10,17 +10,16 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Margin, Pos2, RichText, Sense, Stroke, Vec2};
 
-use crate::analyzer::{
-    format_breakdown_banner, format_pressure_badge_text, format_pressure_badge_tooltip,
-};
+use crate::analyzer::{format_breakdown_banner, format_pressure_badge_tooltip};
 use crate::model::{ActionCommand, Episode, PressureBreakdown, ScoredProcess, SystemSnapshot};
 use crate::ui::actions::ActionRunner;
 use crate::ui::charts::{self, SparklineConfig};
 use crate::ui::palette::{
-    level_tokens, PressureShape, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_SMOOTH, COLOR_BORDER,
-    COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED,
-    COLOR_MUTED_FOREGROUND, COLOR_WARNING, FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING,
-    FONT_SIZE_SUBHEADING, FONT_SIZE_TINY, RADIUS_LG, RADIUS_MD, RADIUS_SM,
+    evaluate_header_badge, level_tokens, PressureShape, COLOR_ACCENT_OK, COLOR_BG,
+    COLOR_BG_CARD_SMOOTH, COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE,
+    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING,
+    FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY,
+    RADIUS_LG, RADIUS_MD, RADIUS_SM,
 };
 use crate::ui::state::{
     format_bottleneck_explanation, format_bps, format_bytes, format_episode_time_str,
@@ -282,6 +281,16 @@ impl SlowSpotApp {
 
         card_frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
+            let card_rect = ui.available_rect_before_wrap();
+
+            // Right cluster layout budget (Pause button + 3 resource chips + item spacing)
+            let right_cluster_w = if self.state.latest_snapshot.is_some() {
+                64.0 + 3.0 * 5.0 + 3.0 * 120.0
+            } else {
+                64.0
+            };
+            let pill_area_left = card_rect.right() - right_cluster_w - 6.0;
+
             ui.horizontal(|ui| {
                 // 1. App Title
                 ui.label(
@@ -308,23 +317,17 @@ impl SlowSpotApp {
                     });
                 }
 
-                // 3. System Pressure Status Pill with resource naming and threshold tooltip
+                // 3. System Pressure Status Pill with unified level mapping (Single Source of Truth)
                 let snap_ref = self.state.latest_snapshot.as_ref();
                 let pressure = snap_ref
                     .map(|s| s.pressure)
                     .unwrap_or(crate::model::PressureState::Smooth);
-                let (status_shape, status_color) = match pressure {
-                    crate::model::PressureState::Overloaded => {
-                        (PressureShape::Octagon, COLOR_DESTRUCTIVE)
-                    }
-                    crate::model::PressureState::Strained => {
-                        (PressureShape::Triangle, COLOR_WARNING)
-                    }
-                    crate::model::PressureState::Smooth => (PressureShape::Circle, COLOR_ACCENT_OK),
-                };
-                let status_text = snap_ref
-                    .map(|s| format_pressure_badge_text(&s.totals, s.pressure))
-                    .unwrap_or_else(|| strings::PRESSURE_SMOOTH.to_string());
+                let culprit = self.state.top_culprit();
+                let totals = snap_ref.map(|s| &s.totals);
+                let badge_info = evaluate_header_badge(culprit, pressure, totals);
+                let status_shape = badge_info.shape;
+                let status_color = badge_info.color;
+                let status_text = badge_info.text;
                 let tooltip_text = snap_ref
                     .map(|s| format_pressure_badge_tooltip(&s.totals))
                     .unwrap_or_default();
@@ -379,22 +382,35 @@ impl SlowSpotApp {
                     });
                 }
 
-                // 5. Cooldown notice if PC recovered from stress
-                if self.state.is_cooldown_active(now) {
-                    ui.horizontal(|ui| {
-                        widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 14.0);
-                        ui.label(
-                            RichText::new(strings::NOTICE_COOLDOWN)
-                                .color(COLOR_ACCENT_OK)
-                                .size(FONT_SIZE_CAPTION)
-                                .strong(),
-                        );
-                    });
+                // 5. Cooldown notice if PC recovered from stress (strictly non-overlapping with right pills)
+                let active_watch = self.state.actively_watched_count();
+                let watched_badge_w = if active_watch > 0 { 86.0 } else { 0.0 };
+                let available_for_notice =
+                    (pill_area_left - ui.cursor().min.x - watched_badge_w - 6.0).max(0.0);
+
+                if self.state.is_cooldown_active(now) && available_for_notice >= 60.0 {
+                    let notice_w = available_for_notice.min(220.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(notice_w, ui.available_height()),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_max_width(notice_w);
+                            widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 14.0);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(strings::NOTICE_COOLDOWN)
+                                        .color(COLOR_ACCENT_OK)
+                                        .size(FONT_SIZE_CAPTION)
+                                        .strong(),
+                                )
+                                .truncate(),
+                            );
+                        },
+                    );
                 }
 
                 // 6. Watched process count badge (when active watch count > 0)
-                let active_watch = self.state.actively_watched_count();
-                if active_watch > 0 {
+                if active_watch > 0 && ui.cursor().min.x + watched_badge_w <= pill_area_left {
                     let watch_frame = egui::Frame::new()
                         .fill(COLOR_WARNING.gamma_multiply(0.2))
                         .corner_radius(RADIUS_MD)
@@ -454,7 +470,7 @@ impl SlowSpotApp {
                     })
                     .stroke(Stroke::new(1.0, btn_color.gamma_multiply(0.5)));
 
-                    let pause_resp = ui.add(pause_btn);
+                    let pause_resp = ui.add_sized(Vec2::new(64.0, 24.0), pause_btn);
                     if pause_resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -2988,6 +3004,288 @@ mod tests {
         assert!(
             rendered_texts.iter().any(|t| t == "×3"),
             "Table must render group badge '×3' for member rows"
+        );
+
+        output.textures_delta.clear();
+    }
+
+    /// Verifies that when a process is Suspicious, the header status badge shows
+    /// 'Có dấu hiệu chậm' (amber) and does NOT show green 'Mượt mà' (Defect 1).
+    #[test]
+    fn test_hero_banner_and_header_badge_suspicious_level() {
+        use crate::model::{
+            Bottleneck, PressureState, ProcessKind, ProcessRecord, Severity, SystemTotals,
+        };
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let mut app = SlowSpotApp {
+            rx,
+            actions: Box::new(crate::ui::DemoActions),
+            state: ViewState::new(),
+            demo: false,
+            confirm_kill: None,
+            last_update_instant: None,
+        };
+
+        // Snapshot with Smooth pressure but 1 suspicious process
+        let proc = ScoredProcess {
+            record: ProcessRecord {
+                pid: 2024,
+                parent_pid: None,
+                name: "indexer.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 45.0,
+                memory_bytes: 1024 * 1024 * 500,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: ProcessKind::UserApp,
+            score: 55.0,
+            severity: Severity::Suspicious,
+            main_bottleneck: Bottleneck::Cpu,
+            killable: true,
+        };
+
+        let snap = SystemSnapshot {
+            timestamp_ms: 1000,
+            totals: SystemTotals {
+                cpu_percent: 48.0,
+                memory_used_bytes: 4 * 1024 * 1024 * 1024,
+                memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bps: 0.0,
+            },
+            processes: vec![proc],
+            pressure: PressureState::Smooth,
+            watched: Vec::new(),
+            breakdown: None,
+        };
+
+        app.state.push_snapshot(snap, Instant::now());
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(1000.0, 680.0),
+            )),
+            ..Default::default()
+        };
+
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            app.render_ui(ui, Instant::now());
+        });
+
+        let mut rendered_texts = Vec::new();
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                rendered_texts.push(text_shape.galley.text().to_string());
+            }
+        }
+
+        // Main card shows "ĐÁNG NGỜ"
+        assert!(
+            rendered_texts
+                .iter()
+                .any(|t| t == strings::HERO_TITLE_SUSPICIOUS),
+            "Card must display 'ĐÁNG NGỜ' for suspicious process"
+        );
+
+        // Header badge shows 'Có dấu hiệu chậm'
+        assert!(
+            rendered_texts
+                .iter()
+                .any(|t| t == strings::STATUS_SUSPICIOUS),
+            "Header badge must show 'Có dấu hiệu chậm' when card is Suspicious, got: {:?}",
+            rendered_texts
+        );
+
+        // Header badge must NOT show 'Mượt mà'
+        assert!(
+            !rendered_texts.iter().any(|t| t == strings::PRESSURE_SMOOTH),
+            "Header badge must NOT show 'Mượt mà' when card is Suspicious"
+        );
+
+        output.textures_delta.clear();
+    }
+
+    /// Verifies that during Cooling phase at min width 760, header left cluster and right pills do not overlap (Defect 3).
+    #[test]
+    fn test_cooling_header_layout_no_overlap_at_760() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let mut app = SlowSpotApp {
+            rx,
+            actions: Box::new(crate::ui::DemoActions),
+            state: ViewState::new(),
+            demo: true,
+            confirm_kill: None,
+            last_update_instant: None,
+        };
+
+        let now = Instant::now();
+        // Trigger cooldown mode
+        app.state.cooldown_until = Some(now + Duration::from_secs(10));
+        assert!(app.state.is_cooldown_active(now));
+
+        let snap = SystemSnapshot {
+            timestamp_ms: 1000,
+            totals: crate::model::SystemTotals {
+                cpu_percent: 25.0,
+                memory_used_bytes: 4 * 1024 * 1024 * 1024,
+                memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bps: 100.0,
+            },
+            processes: vec![],
+            pressure: crate::model::PressureState::Smooth,
+            watched: Vec::new(),
+            breakdown: None,
+        };
+        app.state.push_snapshot(snap, now);
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(760.0, 520.0),
+            )),
+            ..Default::default()
+        };
+
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            app.render_ui(ui, now);
+        });
+
+        // Locate the rightmost x coordinate of left-cluster header texts
+        // and the leftmost x coordinate of CPU label in the CPU chip.
+        let mut cpu_label_x = None;
+        let mut left_cluster_max_x = 0.0f32;
+
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                let text = text_shape.galley.text();
+                let text_rect = egui::Rect::from_min_size(text_shape.pos, text_shape.galley.size());
+
+                // Header elements in top region (y < 60)
+                if text_rect.min.y < 60.0 {
+                    if text == "CPU" {
+                        cpu_label_x = Some(text_rect.min.x);
+                    } else if text == "SlowSpot"
+                        || text == strings::BADGE_DEMO
+                        || text == strings::PRESSURE_SMOOTH
+                        || text == strings::NOTICE_COOLDOWN
+                    {
+                        left_cluster_max_x = left_cluster_max_x.max(text_rect.max.x);
+                    }
+                }
+            }
+        }
+
+        let cpu_x = cpu_label_x.expect("CPU chip label must be rendered in header");
+        assert!(
+            left_cluster_max_x < cpu_x,
+            "Left header cluster text (max x: {left_cluster_max_x}) must NOT overlap or touch CPU pill (min x: {cpu_x})"
+        );
+
+        output.textures_delta.clear();
+    }
+
+    /// Verifies that a single-process group does NOT show a '×1' tag in the table row (Defect 4).
+    #[test]
+    fn test_single_process_group_does_not_render_tag() {
+        use crate::model::{
+            Bottleneck, PressureState, ProcessGroupShare, ProcessKind, ProcessRecord, Severity,
+            SystemTotals,
+        };
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let mut app = SlowSpotApp {
+            rx,
+            actions: Box::new(crate::ui::DemoActions),
+            state: ViewState::new(),
+            demo: false,
+            confirm_kill: None,
+            last_update_instant: None,
+        };
+
+        let proc = ScoredProcess {
+            record: ProcessRecord {
+                pid: 5001,
+                parent_pid: None,
+                name: "heavy_single.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 85.0,
+                memory_bytes: 1024 * 1024 * 500,
+                disk_read_bps: 0.0,
+                disk_write_bps: 0.0,
+            },
+            kind: ProcessKind::UserApp,
+            score: 85.0,
+            severity: Severity::Culprit,
+            main_bottleneck: Bottleneck::Cpu,
+            killable: true,
+        };
+
+        // Breakdown with 1 process
+        let group_share = ProcessGroupShare {
+            name: "heavy_single.exe".to_string(),
+            process_count: 1,
+            total_metric: 85.0,
+            share_percent: 85.0,
+            pids: vec![5001],
+        };
+
+        let bd = crate::model::PressureBreakdown {
+            resource: crate::model::OverloadedResource::Cpu,
+            system_value: 90.0,
+            resource_unit: "%",
+            top_groups: vec![group_share.clone()],
+            remainder_share_percent: 15.0,
+            group_culprit: Some(group_share),
+        };
+
+        let snap = SystemSnapshot {
+            timestamp_ms: 1000,
+            totals: SystemTotals {
+                cpu_percent: 90.0,
+                memory_used_bytes: 4 * 1024 * 1024 * 1024,
+                memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bps: 0.0,
+            },
+            processes: vec![proc],
+            pressure: PressureState::Overloaded,
+            watched: Vec::new(),
+            breakdown: Some(bd),
+        };
+
+        app.state.push_snapshot(snap, Instant::now());
+
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(1000.0, 680.0),
+            )),
+            ..Default::default()
+        };
+
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            app.render_ui(ui, Instant::now());
+        });
+
+        let mut rendered_texts = Vec::new();
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                rendered_texts.push(text_shape.galley.text().to_string());
+            }
+        }
+
+        // Table must NOT render group tag '×1'
+        assert!(
+            !rendered_texts.iter().any(|t| t == "×1"),
+            "Table must NOT render group badge '×1' for single-process group"
         );
 
         output.textures_delta.clear();

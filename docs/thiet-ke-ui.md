@@ -2,6 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
+| 2.3.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 4 (Task polish3) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.2.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 3 (Task uiux3) | 05/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 
 ---
@@ -90,10 +91,19 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 ## 5. Thiết kế Thành phần Giao diện (Components)
 
 ### 5.1. Khung Tiêu Đề Đỉnh (Header Banner)
-- **Bên trái**: Tên ứng dụng `SlowSpot`, Huy hiệu `DEMO` (nếu chạy giả lập), Viên thuốc chỉ thị áp lực PC (`Mượt mà` ● / `Căng thẳng` ▲ / `Quá tải` 🛑), Nhãn `ĐANG TẠM DỪNG` (khi đóng băng hiển thị), và thông báo `Đã hạ nhiệt, PC đã mượt trở lại` ✔.
+- **Bên trái**:
+  - Tên ứng dụng `SlowSpot`, Huy hiệu `DEMO` (nếu chạy giả lập).
+  - **Huy hiệu trạng thái thống nhất (Single Source of Truth)** đồng bộ cấp độ với Hero Card:
+    - **Mức Bình thường (Normal)**: Hình tròn đặc (●) màu xanh lá `COLOR_ACCENT_OK` + nhãn `Mượt mà`.
+    - **Mức Đáng ngờ (Suspicious)**: Hình tam giác cảnh báo (▲) màu vàng hổ phách `COLOR_WARNING` + nhãn `Có dấu hiệu chậm`.
+    - **Mức Thủ phạm / Quá tải (Culprit / Overload)**: Hình bát giác nguy hiểm (🛑) màu đỏ `COLOR_DESTRUCTIVE` + nhãn tài nguyên quá tải (ví dụ: `Quá tải CPU`, `Quá tải RAM`, `Quá tải đĩa`, `Quá tải CPU + RAM`).
+  - Nhãn `ĐANG TẠM DỪNG` (khi đóng băng hiển thị), huy hiệu đếm tiến trình theo dõi `Theo dõi: N`.
+  - Thông báo làm mát `Đã hạ nhiệt, PC đã mượt trở lại` ✔ với cơ chế tự động co giãn / cắt gọn dấu ba chấm (`…`) hoặc ẩn đi nếu không gian hẹp, bảo đảm không bao giờ vẽ đè lên cụm chip tài nguyên bên phải ở mọi độ rộng $\ge 760\text{px}$.
 - **Bên phải**:
-  - Nút **Tạm dừng / Tiếp tục** (kèm phím tắt `Space` và tooltip hướng dẫn a11y).
-  - 3 Chip chỉ số tài nguyên mini (`CPU`, `RAM`, `Đĩa`) tích hợp thanh đo tỷ lệ trực quan ngay bên trong chip.
+  - Nút **Tạm dừng / Tiếp tục** (kèm phím tắt `Space` và tooltip hướng dẫn a11y, kích thước cố định gọn gàng 64px x 24px).
+  - 3 Chip chỉ số tài nguyên mini (`CPU`, `RAM`, `Đĩa`):
+    - Cấu trúc phân bổ độ rộng cố định nghiêm ngặt: Nhãn bên trái (20px), khoảng trống đệm (4px), thanh đo tỷ lệ trực quan (16px), khoảng trống đệm (4px), và giá trị số liệu monospace căn lề phải (64px).
+    - Ranh giới thanh bar và số liệu hoàn toàn tách rời, triệt tiêu triệt để hiện tượng vạch bar vẽ đè/che khuất các ký tự đầu tiên của số liệu với mọi giá trị lên đến `999.9 MB/s` và `100%`.
 
 ### 5.2. Thẻ Thủ Phạm Chính (Top Culprit Hero Card)
 - **Bố cục thu gọn (Compact Height)**: Padding bên trong 12px x 8px, tối ưu chiều cao để dành trọn không gian cho bảng tiến trình hiển thị >= 10 hàng ở cửa sổ 1000x680.
@@ -240,4 +250,4 @@ Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Wind
 - **Hero Card**: Khi áp lực cao nhưng không có một tiến trình đơn lẻ áp đảo, hệ thống hiển thị thẻ Nhóm thủ phạm:
   - Tiêu đề: `Nhóm thủ phạm: rustc.exe (3 tiến trình)`
   - Diễn giải: `CPU đang 99.7% — rustc.exe (3 tiến trình) chiếm 52%, chrome.exe (4) 8%, còn lại 40% từ hệ thống/tiến trình khác`
-- **Bảng tiến trình**: Gắn nhãn nhóm nhỏ `×3` bên cạnh tên tiến trình thành viên và làm nổi bật nền hàng bằng dải màu xanh nhẹ để người dùng dễ nhận diện trực quan.
+- **Bảng tiến trình**: Gắn nhãn nhóm nhỏ `×N` bên cạnh tên tiến trình thành viên khi nhóm có $\ge 2$ tiến trình thực thi (không hiển thị nhãn `×1` cho tiến trình đơn lẻ) và làm nổi bật nền hàng bằng dải màu xanh nhẹ để người dùng dễ nhận diện trực quan.

@@ -11,6 +11,7 @@ pub const PRESSURE_SMOOTH: &str = "Mượt mà";
 pub const PRESSURE_STRAINED: &str = "Căng thẳng";
 pub const PRESSURE_OVERLOADED: &str = "Quá tải";
 pub const PRESSURE_WAITING: &str = "Đang chờ dữ liệu...";
+pub const STATUS_SUSPICIOUS: &str = "Có dấu hiệu chậm";
 
 // Cooldown Notice
 pub const NOTICE_COOLDOWN: &str = "Đã hạ nhiệt, PC đã mượt trở lại";
@@ -145,6 +146,7 @@ mod tests {
         PRESSURE_STRAINED,
         PRESSURE_OVERLOADED,
         PRESSURE_WAITING,
+        STATUS_SUSPICIOUS,
         NOTICE_COOLDOWN,
         RES_CPU,
         RES_RAM,

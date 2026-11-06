@@ -274,7 +274,7 @@ pub fn mini_metric_chip(
     pct: f32,
     color: Color32,
 ) -> Response {
-    let desired_size = Vec2::new(138.0, 26.0);
+    let desired_size = Vec2::new(126.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(desired_size, Sense::hover());
     if !ui.is_rect_visible(rect) {
         return resp;
@@ -290,27 +290,22 @@ pub fn mini_metric_chip(
     );
 
     // Left label (CPU/RAM/Đĩa)
+    let pad_left = 4.0;
+    let pad_right = 4.0;
+    let label_w = 20.0;
+    let bar_w = 16.0;
+    let gap = 4.0;
+
     p.text(
-        Pos2::new(rect.left() + 7.0, rect.center().y),
+        Pos2::new(rect.left() + pad_left, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(FONT_SIZE_CAPTION),
         COLOR_MUTED_FOREGROUND,
     );
 
-    // Right value (e.g. 45% or 12.5 MB/s)
-    p.text(
-        Pos2::new(rect.right() - 7.0, rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        val_str,
-        egui::FontId::monospace(FONT_SIZE_CAPTION),
-        COLOR_FOREGROUND,
-    );
-
-    // Mini bar in the middle
-    let bar_left = rect.left() + 38.0;
-    let bar_right = rect.right() - 56.0;
-    let bar_w = (bar_right - bar_left).max(20.0);
+    // Mini bar in the middle with fixed width and non-overlapping bounds
+    let bar_left = rect.left() + pad_left + label_w + gap;
     let bar_h = 4.0;
     let bar_y = rect.center().y - (bar_h / 2.0);
 
@@ -322,6 +317,15 @@ pub fn mini_metric_chip(
         let filled = Rect::from_min_size(track.min, Vec2::new(bar_w * fill_ratio, bar_h));
         p.rect_filled(filled, 2.0, color);
     }
+
+    // Right-aligned value text (strictly right of the bar track, guaranteed non-overlapping)
+    p.text(
+        Pos2::new(rect.right() - pad_right, rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        val_str,
+        egui::FontId::monospace(FONT_SIZE_CAPTION),
+        COLOR_FOREGROUND,
+    );
 
     resp
 }
@@ -589,7 +593,11 @@ pub fn watched_tag(ui: &mut Ui, severity: Severity) {
 }
 
 /// Renders a small badge showing process group count (e.g. "×3").
+/// Only rendered when group has >= 2 processes.
 pub fn group_tag(ui: &mut Ui, count: usize) {
+    if count < 2 {
+        return;
+    }
     let font_id = egui::FontId::proportional(FONT_SIZE_TINY);
     let text = format!("×{count}");
     let color = COLOR_INFO;
@@ -613,4 +621,65 @@ pub fn group_tag(ui: &mut Ui, count: usize) {
         galley,
         color,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::palette::{COLOR_ACCENT_OK, COLOR_DESTRUCTIVE, COLOR_WARNING};
+
+    #[test]
+    fn test_mini_metric_chip_no_overlap() {
+        let ctx = egui::Context::default();
+        let raw_input = egui::RawInput::default();
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            mini_metric_chip(ui, "Đĩa", "999.9 MB/s", 100.0, COLOR_ACCENT_OK);
+            mini_metric_chip(ui, "Đĩa", "98.6 KB/s", 50.0, COLOR_ACCENT_OK);
+            mini_metric_chip(ui, "RAM", "100%", 100.0, COLOR_WARNING);
+            mini_metric_chip(ui, "CPU", "100.0%", 100.0, COLOR_DESTRUCTIVE);
+        });
+
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                let text = text_shape.galley.text();
+                if text == "999.9 MB/s" || text == "98.6 KB/s" || text == "100%" || text == "100.0%"
+                {
+                    let text_min_x = text_shape.pos.x;
+                    let text_max_x = text_shape.pos.x + text_shape.galley.size().x;
+                    let chip_right = text_max_x + 4.0;
+                    let chip_left = chip_right - 126.0;
+                    let bar_max_x = chip_left + 44.0;
+                    assert!(
+                        text_min_x >= bar_max_x,
+                        "Value text '{text}' min x ({text_min_x}) must be >= bar max x ({bar_max_x})"
+                    );
+                }
+            }
+        }
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn test_group_tag_requires_at_least_two_processes() {
+        let ctx = egui::Context::default();
+        let raw_input = egui::RawInput::default();
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            group_tag(ui, 1);
+            group_tag(ui, 0);
+            group_tag(ui, 2);
+            group_tag(ui, 5);
+        });
+
+        let mut rendered_texts = Vec::new();
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                rendered_texts.push(text_shape.galley.text().to_string());
+            }
+        }
+        assert!(!rendered_texts.contains(&"×1".to_string()));
+        assert!(!rendered_texts.contains(&"×0".to_string()));
+        assert!(rendered_texts.contains(&"×2".to_string()));
+        assert!(rendered_texts.contains(&"×5".to_string()));
+        output.textures_delta.clear();
+    }
 }
