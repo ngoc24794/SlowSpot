@@ -32,17 +32,25 @@ use crate::ui::{table, theme, widgets};
 pub struct SlowSpotApp {
     rx: Receiver<SystemSnapshot>,
     actions: Box<dyn ActionRunner>,
-    state: ViewState,
-    demo: bool,
+    pub state: ViewState,
+    pub demo: bool,
     confirm_kill: Option<ScoredProcess>,
     last_update_instant: Option<Instant>,
+    pub last_layout: Option<crate::ui::layout_assert::LayoutSnapshot>,
+    current_layout: Option<crate::ui::layout_assert::LayoutSnapshot>,
 }
+
+/// Consistent vertical gap between dashboard sections (header, watched, status, charts, and table).
+pub const SECTION_GAP: f32 = 8.0;
 
 /// Fixed height of the "Đang theo dõi" (Watched) panel slot.
 pub const WATCHED_SLOT_HEIGHT: f32 = 50.0;
 
 /// Fixed height of the status area (Hero culprit card / smooth calm banner) slot.
 pub const STATUS_SLOT_HEIGHT: f32 = 104.0;
+
+/// Fixed height of the real-time sparkline charts card.
+pub const SPARKLINE_HEIGHT: f32 = 42.0;
 
 /// Active visual presentation state of the hero card.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,7 +148,29 @@ impl SlowSpotApp {
             demo: false,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         }
+    }
+
+    /// Creates an instance for headless testing without requiring an active eframe creation context.
+    pub fn for_testing(rx: Receiver<SystemSnapshot>, actions: Box<dyn ActionRunner>) -> Self {
+        Self {
+            rx,
+            actions,
+            state: ViewState::new(),
+            demo: false,
+            confirm_kill: None,
+            last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
+        }
+    }
+
+    /// Injects a snapshot directly into the view state without requiring channel communication.
+    pub fn push_snapshot(&mut self, snapshot: SystemSnapshot, now: Instant) {
+        self.state.push_snapshot(snapshot, now);
+        self.last_update_instant = Some(now);
     }
 
     /// Sets whether the application runs in simulated demo mode.
@@ -153,6 +183,20 @@ impl SlowSpotApp {
 impl SlowSpotApp {
     /// Renders the complete dashboard interface.
     pub fn render_ui(&mut self, ui: &mut egui::Ui, now: Instant) {
+        let window_size = ui.max_rect().size();
+        self.current_layout = Some(crate::ui::layout_assert::LayoutSnapshot {
+            window_size,
+            header_card_rect: egui::Rect::ZERO,
+            header_elements: Vec::new(),
+            watched_slot_rect: egui::Rect::ZERO,
+            status_slot_rect: egui::Rect::ZERO,
+            action_buttons: Vec::new(),
+            charts_rect: egui::Rect::ZERO,
+            table_card_rect: egui::Rect::ZERO,
+            table_body_rect: egui::Rect::ZERO,
+            table_visible_rows: 0,
+        });
+
         // 1. Drain incoming snapshots from the collector thread
         let mut got_snapshot = false;
         while let Ok(snapshot) = self.rx.try_recv() {
@@ -199,28 +243,36 @@ impl SlowSpotApp {
                     .inner_margin(Margin::symmetric(12, 4)),
             )
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
                 // Clip strictly to central panel bounds to prevent painting over status bar
                 let central_clip = ui.clip_rect().intersect(ui.max_rect());
                 ui.set_clip_rect(central_clip);
 
                 // Ephemeral Toast Notifications (if any)
-                self.render_toast_and_status(ui, now);
+                if self.state.active_toast(now).is_some() {
+                    self.render_toast_and_status(ui, now);
+                    ui.add_space(SECTION_GAP);
+                }
 
                 // Header Banner (Title, Demo, Status Pill, Mini Chips, Pause Button)
                 self.render_header_banner(ui, now);
-                ui.add_space(2.0);
+
+                ui.add_space(SECTION_GAP);
 
                 // Watched Panel ("Đang theo dõi" - Fixed slot above status card)
                 self.render_watched_panel(ui, now);
-                ui.add_space(2.0);
+
+                ui.add_space(SECTION_GAP);
 
                 // Top Culprit Hero Card / Smooth Status Banner - Fixed slot
                 self.render_top_culprit_card(ui, now);
-                ui.add_space(2.0);
+
+                ui.add_space(SECTION_GAP);
 
                 // Real-time Sparklines (CPU, RAM, Disk)
                 self.render_sparklines(ui);
-                ui.add_space(2.0);
+
+                ui.add_space(SECTION_GAP);
 
                 // Process Table (Takes remaining vertical space, internal vertical scroll only)
                 self.render_process_table(ui, now);
@@ -228,6 +280,8 @@ impl SlowSpotApp {
 
         // 6. Modal confirmation dialog for forced kill
         self.render_confirm_kill_dialog(ui, now);
+
+        self.last_layout = self.current_layout.take();
     }
 }
 
@@ -284,27 +338,30 @@ impl SlowSpotApp {
             .inner_margin(Margin::symmetric(12, 6))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
-        card_frame.show(ui, |ui| {
+        let card_resp = card_frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let card_rect = ui.available_rect_before_wrap();
 
             let right_spacing = ui.spacing().item_spacing.x;
+            let (chip_disk_w, chip_ram_w, chip_cpu_w) = (120.0, 96.0, 96.0);
             // Right cluster layout budget (Pause button + 3 resource chips + item spacing)
             let right_cluster_w = if self.state.latest_snapshot.is_some() {
-                64.0 + 3.0 * 126.0 + 3.0 * right_spacing
+                64.0 + chip_disk_w + chip_ram_w + chip_cpu_w + 3.0 * right_spacing
             } else {
                 64.0
             };
-            let pill_area_left = card_rect.right() - right_cluster_w - 10.0;
+            let pill_area_left = ui.max_rect().right() - right_cluster_w - 32.0;
 
             ui.horizontal(|ui| {
                 // 1. App Title
-                ui.label(
+                let title_resp = ui.label(
                     RichText::new("SlowSpot")
                         .color(COLOR_FOREGROUND)
                         .size(FONT_SIZE_HEADING)
                         .strong(),
                 );
+                if let Some(l) = &mut self.current_layout {
+                    l.header_elements.push(("title", title_resp.rect));
+                }
 
                 // 2. Demo Badge
                 if self.demo {
@@ -313,14 +370,19 @@ impl SlowSpotApp {
                         .corner_radius(RADIUS_SM)
                         .inner_margin(Margin::symmetric(6, 2))
                         .stroke(Stroke::new(1.0, COLOR_WARNING.gamma_multiply(0.5)));
-                    demo_badge.show(ui, |ui| {
-                        ui.label(
-                            RichText::new(strings::BADGE_DEMO)
-                                .color(COLOR_WARNING)
-                                .size(FONT_SIZE_TINY)
-                                .strong(),
-                        );
-                    });
+                    let demo_resp = demo_badge
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(strings::BADGE_DEMO)
+                                    .color(COLOR_WARNING)
+                                    .size(FONT_SIZE_TINY)
+                                    .strong(),
+                            );
+                        })
+                        .response;
+                    if let Some(l) = &mut self.current_layout {
+                        l.header_elements.push(("demo_badge", demo_resp.rect));
+                    }
                 }
 
                 // 3. System Pressure Status Pill with unified level mapping (Single Source of Truth)
@@ -344,28 +406,33 @@ impl SlowSpotApp {
                     .inner_margin(Margin::symmetric(8, 4))
                     .stroke(Stroke::new(1.0, status_color.gamma_multiply(0.4)));
 
-                pill_frame.show(ui, |ui| {
-                    let resp = ui
-                        .horizontal(|ui| {
-                            widgets::draw_pressure_shape_indicator(
-                                ui,
-                                status_shape,
-                                status_color,
-                                10.0,
-                            );
-                            ui.add_space(2.0);
-                            ui.label(
-                                RichText::new(status_text)
-                                    .color(status_color)
-                                    .size(FONT_SIZE_CAPTION)
-                                    .strong(),
-                            );
-                        })
-                        .response;
-                    if !tooltip_text.is_empty() {
-                        resp.on_hover_text(tooltip_text);
-                    }
-                });
+                let pill_resp = pill_frame
+                    .show(ui, |ui| {
+                        let resp = ui
+                            .horizontal(|ui| {
+                                widgets::draw_pressure_shape_indicator(
+                                    ui,
+                                    status_shape,
+                                    status_color,
+                                    10.0,
+                                );
+                                ui.add_space(2.0);
+                                ui.label(
+                                    RichText::new(status_text)
+                                        .color(status_color)
+                                        .size(FONT_SIZE_CAPTION)
+                                        .strong(),
+                                );
+                            })
+                            .response;
+                        if !tooltip_text.is_empty() {
+                            resp.on_hover_text(tooltip_text);
+                        }
+                    })
+                    .response;
+                if let Some(l) = &mut self.current_layout {
+                    l.header_elements.push(("status_pill", pill_resp.rect));
+                }
 
                 // 4. Paused State Indicator
                 if self.state.is_paused {
@@ -374,18 +441,23 @@ impl SlowSpotApp {
                         .corner_radius(RADIUS_MD)
                         .inner_margin(Margin::symmetric(8, 4))
                         .stroke(Stroke::new(1.0, COLOR_WARNING));
-                    paused_badge.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            widgets::draw_pause_icon(ui, COLOR_WARNING, 10.0);
-                            ui.add_space(2.0);
-                            ui.label(
-                                RichText::new(strings::BADGE_PAUSED)
-                                    .color(COLOR_WARNING)
-                                    .size(FONT_SIZE_CAPTION)
-                                    .strong(),
-                            );
-                        });
-                    });
+                    let paused_resp = paused_badge
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                widgets::draw_pause_icon(ui, COLOR_WARNING, 10.0);
+                                ui.add_space(2.0);
+                                ui.label(
+                                    RichText::new(strings::BADGE_PAUSED)
+                                        .color(COLOR_WARNING)
+                                        .size(FONT_SIZE_CAPTION)
+                                        .strong(),
+                                );
+                            });
+                        })
+                        .response;
+                    if let Some(l) = &mut self.current_layout {
+                        l.header_elements.push(("paused_badge", paused_resp.rect));
+                    }
                 }
 
                 // 5. Cooldown notice if PC recovered from stress (strictly non-overlapping before right pills)
@@ -394,26 +466,32 @@ impl SlowSpotApp {
 
                 if self.state.is_cooldown_active(now) && available_for_notice >= 40.0 {
                     let notice_w = available_for_notice.min(220.0);
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(notice_w, ui.available_height()),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.set_max_width(notice_w);
-                            widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 14.0);
-                            ui.add_space(2.0);
-                            let text_w = (notice_w - 18.0).max(10.0);
-                            ui.add_sized(
-                                Vec2::new(text_w, ui.available_height()),
-                                egui::Label::new(
-                                    RichText::new(strings::NOTICE_COOLDOWN)
-                                        .color(COLOR_ACCENT_OK)
-                                        .size(FONT_SIZE_CAPTION)
-                                        .strong(),
-                                )
-                                .truncate(),
-                            );
-                        },
-                    );
+                    let cooldown_resp = ui
+                        .allocate_ui_with_layout(
+                            Vec2::new(notice_w, ui.available_height()),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_max_width(notice_w);
+                                widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 14.0);
+                                ui.add_space(2.0);
+                                let text_w = (notice_w - 18.0).max(10.0);
+                                ui.add_sized(
+                                    Vec2::new(text_w, ui.available_height()),
+                                    egui::Label::new(
+                                        RichText::new(strings::NOTICE_COOLDOWN)
+                                            .color(COLOR_ACCENT_OK)
+                                            .size(FONT_SIZE_CAPTION)
+                                            .strong(),
+                                    )
+                                    .truncate(),
+                                );
+                            },
+                        )
+                        .response;
+                    if let Some(l) = &mut self.current_layout {
+                        l.header_elements
+                            .push(("cooldown_notice", cooldown_resp.rect));
+                    }
                 }
 
                 // Push right-aligned controls: Pause button & Mini resource chips
@@ -447,11 +525,15 @@ impl SlowSpotApp {
                     .stroke(Stroke::new(1.0, btn_color.gamma_multiply(0.5)));
 
                     let pause_resp = ui.add_sized(Vec2::new(64.0, 24.0), pause_btn);
+                    let pause_rect = pause_resp.rect;
                     if pause_resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
                     if pause_resp.on_hover_text(btn_tip).clicked() {
                         self.state.toggle_pause(now);
+                    }
+                    if let Some(l) = &mut self.current_layout {
+                        l.header_elements.push(("pause_button", pause_rect));
                     }
 
                     // Mini Resource Metric Chips (Disk, RAM, CPU)
@@ -468,35 +550,50 @@ impl SlowSpotApp {
                         let disk_pct = (disk_mb / 50.0 * 100.0).clamp(0.0, 100.0);
 
                         // Disk Chip
-                        widgets::mini_metric_chip(
+                        let chip_disk = widgets::mini_metric_chip_width(
                             ui,
                             "Đĩa",
                             &format_bps(snap.totals.disk_bps),
                             disk_pct,
                             COLOR_ACCENT_OK,
+                            chip_disk_w,
                         );
+                        if let Some(l) = &mut self.current_layout {
+                            l.header_elements.push(("chip_disk", chip_disk.rect));
+                        }
 
                         // RAM Chip
-                        widgets::mini_metric_chip(
+                        let chip_ram = widgets::mini_metric_chip_width(
                             ui,
                             "RAM",
                             &format!("{:.0}%", mem_pct),
                             mem_pct,
                             COLOR_WARNING,
+                            chip_ram_w,
                         );
+                        if let Some(l) = &mut self.current_layout {
+                            l.header_elements.push(("chip_ram", chip_ram.rect));
+                        }
 
                         // CPU Chip
-                        widgets::mini_metric_chip(
+                        let chip_cpu = widgets::mini_metric_chip_width(
                             ui,
                             "CPU",
                             &format_percent(snap.totals.cpu_percent),
                             snap.totals.cpu_percent,
                             COLOR_DESTRUCTIVE,
+                            chip_cpu_w,
                         );
+                        if let Some(l) = &mut self.current_layout {
+                            l.header_elements.push(("chip_cpu", chip_cpu.rect));
+                        }
                     }
                 });
             });
         });
+        if let Some(l) = &mut self.current_layout {
+            l.header_card_rect = card_resp.response.rect;
+        }
     }
 
     /// Renders the hero culprit card with primary/danger/secondary action button hierarchy.
@@ -532,13 +629,16 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(fill_color)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(10, 4))
+            .inner_margin(Margin::symmetric(10, 8))
             .stroke(Stroke::new(1.0, border_color));
 
         let (slot_rect, _) = ui.allocate_exact_size(
             Vec2::new(ui.available_width(), STATUS_SLOT_HEIGHT),
             Sense::hover(),
         );
+        if let Some(l) = &mut self.current_layout {
+            l.status_slot_rect = slot_rect;
+        }
         let slot_clip = ui.clip_rect().intersect(slot_rect);
         let mut slot_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -549,7 +649,7 @@ impl SlowSpotApp {
 
         card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(STATUS_SLOT_HEIGHT - 8.0);
+            ui.set_min_height(STATUS_SLOT_HEIGHT - 16.0);
             ui.spacing_mut().item_spacing.y = 2.0;
             match banner_state {
                 HeroBannerState::Culprit(target) => {
@@ -642,6 +742,7 @@ impl SlowSpotApp {
                         .stroke(close_stroke);
 
                         let close_resp = ui.add_enabled(killable, close_btn);
+                        let close_rect = close_resp.rect;
                         if close_resp.hovered() && killable {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -687,6 +788,7 @@ impl SlowSpotApp {
                         .stroke(kill_stroke);
 
                         let kill_resp = ui.add_enabled(killable && can_kill, kill_btn);
+                        let kill_rect = kill_resp.rect;
                         if kill_resp.hovered() && can_kill {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -718,6 +820,7 @@ impl SlowSpotApp {
                         .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
                         let open_resp = ui.add(open_btn);
+                        let open_rect = open_resp.rect;
                         if open_resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -744,6 +847,7 @@ impl SlowSpotApp {
                         .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
                         let ignore_resp = ui.add(ignore_btn);
+                        let ignore_rect = ignore_resp.rect;
                         if ignore_resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
@@ -756,6 +860,13 @@ impl SlowSpotApp {
                                 now,
                                 Duration::from_secs(4),
                             );
+                        }
+
+                        if let Some(l) = &mut self.current_layout {
+                            l.action_buttons.push(("graceful_close", close_rect));
+                            l.action_buttons.push(("force_kill", kill_rect));
+                            l.action_buttons.push(("open_location", open_rect));
+                            l.action_buttons.push(("ignore_culprit", ignore_rect));
                         }
                     });
 
@@ -796,7 +907,7 @@ impl SlowSpotApp {
                     } else {
                         24.0
                     };
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 8.0 - content_h) / 2.0).max(0.0);
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 16.0 - content_h) / 2.0).max(0.0);
                     ui.add_space(pad_top);
 
                     ui.horizontal(|ui| {
@@ -859,7 +970,7 @@ impl SlowSpotApp {
                     subtitle,
                     color,
                 } => {
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 8.0 - 24.0) / 2.0).max(0.0);
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 16.0 - 24.0) / 2.0).max(0.0);
                     ui.add_space(pad_top);
 
                     ui.horizontal(|ui| {
@@ -883,7 +994,7 @@ impl SlowSpotApp {
     }
 
     /// Renders 60-second resource sparklines with area shading and hover inspection.
-    fn render_sparklines(&self, ui: &mut egui::Ui) {
+    fn render_sparklines(&mut self, ui: &mut egui::Ui) {
         let cpu_values: Vec<f32> = self.state.history.iter().map(|p| p.cpu_percent).collect();
         let ram_values: Vec<f32> = self
             .state
@@ -909,7 +1020,7 @@ impl SlowSpotApp {
         let spacing = ui.spacing().item_spacing.x;
         let [w0, w1, w2] = charts::calculate_sparkline_widths(available_width, spacing);
 
-        ui.horizontal(|ui| {
+        let resp = ui.horizontal(|ui| {
             charts::sparkline(
                 ui,
                 SparklineConfig {
@@ -919,7 +1030,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_DESTRUCTIVE,
-                    size: Vec2::new(w0, 50.0),
+                    size: Vec2::new(w0, SPARKLINE_HEIGHT),
                 },
                 &cpu_values,
             );
@@ -932,7 +1043,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_WARNING,
-                    size: Vec2::new(w1, 50.0),
+                    size: Vec2::new(w1, SPARKLINE_HEIGHT),
                 },
                 &ram_values,
             );
@@ -945,11 +1056,14 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: max_disk,
                     line_color: COLOR_ACCENT_OK,
-                    size: Vec2::new(w2, 50.0),
+                    size: Vec2::new(w2, SPARKLINE_HEIGHT),
                 },
                 &disk_values,
             );
         });
+        if let Some(l) = &mut self.current_layout {
+            l.charts_rect = resp.response.rect;
+        }
     }
 
     /// Renders the compact "Đang theo dõi" panel above the status area in a fixed-height slot.
@@ -960,6 +1074,9 @@ impl SlowSpotApp {
             Vec2::new(ui.available_width(), WATCHED_SLOT_HEIGHT),
             Sense::hover(),
         );
+        if let Some(l) = &mut self.current_layout {
+            l.watched_slot_rect = slot_rect;
+        }
         let slot_clip = ui.clip_rect().intersect(slot_rect);
         let mut slot_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -971,12 +1088,13 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(10, 3))
+            .inner_margin(Margin::symmetric(10, 8))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(WATCHED_SLOT_HEIGHT - 6.0);
+            ui.set_min_height(WATCHED_SLOT_HEIGHT - 16.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
 
             // Header row
             ui.horizontal(|ui| {
@@ -1021,9 +1139,9 @@ impl SlowSpotApp {
 
             ui.add_space(2.0);
 
-            // Content area: fixed height (~22.0px), exactly 1 row visible.
+            // Content area: fixed height (~18.0px), exactly 1 row visible.
             // Shows muted placeholder if 0 episodes; scrolls internally without growing if > 1 episodes.
-            let content_height = 22.0;
+            let content_height = 18.0;
             if episodes.is_empty() {
                 ui.allocate_ui_with_layout(
                     Vec2::new(ui.available_width(), content_height),
@@ -1326,7 +1444,7 @@ impl SlowSpotApp {
             .inner_margin(Margin::symmetric(10, 5))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
-        card_frame.show(ui, |ui| {
+        let card_resp = card_frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             let card_clip = ui.clip_rect().intersect(ui.max_rect());
             ui.set_clip_rect(card_clip);
@@ -1524,10 +1642,8 @@ impl SlowSpotApp {
             } else {
                 0.0
             };
-            let card_bottom_margin = 5.0;
             let table_body_bottom =
-                (ui.max_rect().bottom() - bottom_bar_height - card_bottom_margin)
-                    .max(table_body_top + 40.0);
+                (ui.max_rect().bottom() - bottom_bar_height).max(table_body_top + 40.0);
             let table_body_height = table_body_bottom - table_body_top;
             let table_body_rect = egui::Rect::from_min_max(
                 Pos2::new(ui.max_rect().left(), table_body_top),
@@ -1541,6 +1657,10 @@ impl SlowSpotApp {
                 Vec2::new(ui.available_width(), table_body_height),
                 Sense::hover(),
             );
+            if let Some(l) = &mut self.current_layout {
+                l.table_body_rect = allocated_body_rect;
+                l.table_visible_rows = (allocated_body_rect.height() / 28.0).floor() as usize;
+            }
 
             let mut body_ui = ui.new_child(
                 egui::UiBuilder::new()
@@ -1598,6 +1718,9 @@ impl SlowSpotApp {
                 self.render_selected_action_bar(ui, now);
             }
         });
+        if let Some(l) = &mut self.current_layout {
+            l.table_card_rect = card_resp.response.rect;
+        }
     }
 
     /// Renders the action bar for the currently selected process below the table.
@@ -2361,6 +2484,8 @@ mod tests {
                 demo: true,
                 confirm_kill: None,
                 last_update_instant: None,
+                last_layout: None,
+                current_layout: None,
             };
 
             let mut mock = crate::collector::MockSource::demo();
@@ -2419,6 +2544,8 @@ mod tests {
                 demo: true,
                 confirm_kill: None,
                 last_update_instant: None,
+                last_layout: None,
+                current_layout: None,
             };
 
             let mut mock = crate::collector::MockSource::demo();
@@ -2630,6 +2757,8 @@ mod tests {
             demo: true,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         };
 
         // Snapshot with Overloaded pressure but NO culprit
@@ -2704,6 +2833,8 @@ mod tests {
             demo: true,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         };
 
         let mut mock = crate::collector::MockSource::demo();
@@ -2896,6 +3027,8 @@ mod tests {
             demo: true,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         };
 
         // Create 3 rustc.exe processes (24%, 21%, 7% -> 52%)
@@ -3053,6 +3186,8 @@ mod tests {
             demo: false,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         };
 
         // Snapshot with Smooth pressure but 1 suspicious process
@@ -3153,6 +3288,8 @@ mod tests {
                 demo: true,
                 confirm_kill: None,
                 last_update_instant: None,
+                last_layout: None,
+                current_layout: None,
             };
 
             // Trigger cooldown mode
@@ -3270,6 +3407,8 @@ mod tests {
             demo: false,
             confirm_kill: None,
             last_update_instant: None,
+            last_layout: None,
+            current_layout: None,
         };
 
         let proc = ScoredProcess {
@@ -3485,6 +3624,8 @@ mod tests {
                 demo: false,
                 confirm_kill: None,
                 last_update_instant: None,
+                last_layout: None,
+                current_layout: None,
             };
             app.state.push_snapshot(snap, Instant::now());
 
@@ -3594,6 +3735,8 @@ mod tests {
                 demo: false,
                 confirm_kill: None,
                 last_update_instant: None,
+                last_layout: None,
+                current_layout: None,
             };
 
             let culprit = ScoredProcess {

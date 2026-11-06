@@ -61,7 +61,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
 
     // 2. Header metrics
-    let header_y = rect.top() + 4.0;
+    let header_y = rect.top() + 3.0;
 
     // Current value at top-right
     let current_font = egui::FontId::monospace(FONT_SIZE_BODY);
@@ -97,7 +97,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         peak_val,
         cfg.unit
     );
-    let peak_y = header_y + 13.0;
+    let peak_y = header_y + 11.0;
     let max_peak_w = (rect.width() - 16.0).max(10.0);
     let peak_galley = painter.layout(peak_str, caption_font, COLOR_MUTED_FOREGROUND, max_peak_w);
     painter.galley(
@@ -107,12 +107,12 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
 
     // 3. Graph Plot Area
-    let graph_top = rect.top() + 29.0;
-    let graph_bottom = rect.bottom() - 13.0;
+    let graph_top = rect.top() + 25.0;
+    let graph_bottom = rect.bottom() - 10.0;
     let graph_left = rect.left() + 8.0;
     let graph_right = rect.right() - 8.0;
 
-    let graph_height = (graph_bottom - graph_top).max(10.0);
+    let graph_height = (graph_bottom - graph_top).max(5.0);
     let graph_width = (graph_right - graph_left).max(10.0);
 
     // Faint horizontal reference grid lines (25%, 50%, 75%)
@@ -135,7 +135,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
 
     // 4. Time axis captions ("-60s" … "nay") (>= 12px caption, solid high-contrast muted foreground)
-    let time_y = rect.bottom() - 2.0;
+    let time_y = rect.bottom() - 1.0;
     painter.text(
         Pos2::new(graph_left, time_y),
         egui::Align2::LEFT_BOTTOM,
