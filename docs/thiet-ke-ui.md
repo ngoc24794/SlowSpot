@@ -2,6 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
+| 2.3.1 | Hoàn thiện Ổn định Bố cục Dọc & Slot Cố định (Task polish3 Addendum) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.3.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 4 (Task polish3) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.2.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 3 (Task uiux3) | 05/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 
@@ -105,27 +106,28 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
     - Cấu trúc phân bổ độ rộng cố định nghiêm ngặt: Nhãn bên trái (20px), khoảng trống đệm (4px), thanh đo tỷ lệ trực quan (16px), khoảng trống đệm (4px), và giá trị số liệu monospace căn lề phải (64px).
     - Ranh giới thanh bar và số liệu hoàn toàn tách rời, triệt tiêu triệt để hiện tượng vạch bar vẽ đè/che khuất các ký tự đầu tiên của số liệu với mọi giá trị lên đến `999.9 MB/s` và `100%`.
 
-### 5.2. Thẻ Thủ Phạm Chính (Top Culprit Hero Card)
-- **Bố cục thu gọn (Compact Height)**: Padding bên trong 12px x 8px, tối ưu chiều cao để dành trọn không gian cho bảng tiến trình hiển thị >= 10 hàng ở cửa sổ 1000x680.
+### 5.2. Khu Vực Trạng Thái & Thẻ Thủ Phạm Chính (Status Area & Hero Card)
+- **Slot Cố Định Bất Biến (`STATUS_SLOT_HEIGHT = 64px`)**: Chiều cao khu vực trạng thái là một hằng số cố định tuyệt đối, không co giãn dù hệ thống ở trạng thái Mượt mà, Đáng ngờ, Quá tải hay Chịu tải cao không thủ phạm. Điều này bảo đảm các khối thành phần bên dưới (Biểu đồ Sparklines và Bảng tiến trình) không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi (Zero Cumulative Layout Shift).
 - **Khi có thủ phạm hoặc tiến trình đáng ngờ**:
   - Khung viền (Border), màu nền (Background), tiêu đề (Title), màu điểm số và huy hiệu cấp độ tuân thủ nghiêm ngặt theo cấp độ nghiêm trọng:
     - **Mức Đáng ngờ (Suspicious - điểm 40–69)**: Viền màu vàng hổ phách `#F59E0B` (`COLOR_WARNING`), nền tối ánh hổ phách `#281808` (`COLOR_BG_CARD_SUSPICIOUS`), tiêu đề `ĐÁNG NGỜ` màu hổ phách, điểm số hiển thị màu hổ phách, huy hiệu cấp độ hình tam giác cảnh báo ▲ + nhãn `Đáng ngờ`.
     - **Mức Thủ phạm (Culprit - điểm >= 70)**: Viền màu đỏ `#EF4444` (`COLOR_DESTRUCTIVE`), nền tối ánh đỏ thẫm `#261014` (`COLOR_BG_CARD_CULPRIT`), tiêu đề `THỦ PHẠM CHÍNH` màu đỏ, điểm số hiển thị màu đỏ, huy hiệu cấp độ hình thoi nguy hiểm ◆ + nhãn `Thủ phạm`.
   - Luôn kết hợp biểu tượng hình học + nhãn văn bản (icon + text label) song hành cùng màu sắc để màu sắc không bao giờ là tín hiệu thị giác duy nhất (WCAG 1.4.1).
   - Tỷ lệ tương phản chữ trên nền tối màu luôn đạt >= 4.5:1.
-  - Dòng 2: Tên file thực thi to bản (15px), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
-  - Dòng 3: Dãy nút hành động phân cấp trực quan:
-    1. **Nút Chính (Primary)**: `Đóng an toàn` (Tô đặc màu xanh dương `COLOR_INFO`, chữ tối màu `COLOR_BG` đậm nét, không viền stroke giả lập focus).
-    2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện ở trạng thái vô hiệu hoá).
-    3. **Nút Phụ (Secondary)**: `Mở thư mục` và `Bỏ qua thủ phạm này` (Dạng viền tối giản).
-  - Dòng 4 (Hiển thị ngay lý do vô hiệu hoá): Khi `Bắt buộc tắt` bị vô hiệu, lập tức hiển thị dòng chú thích nhỏ kèm biểu tượng cảnh báo ngay dưới nhóm nút (ví dụ `Bắt buộc tắt sẽ khả dụng nếu ứng dụng không đóng sau 5 giây` hoặc `Tiến trình hệ thống được bảo vệ — không thể tắt`), không bắt người dùng phải hover chuột mới biết lý do.
+  - Bố cục 3 dòng tinh gọn tuyệt đối vừa vặn trong slot 64px:
+    - **Dòng 1**: Tiêu đề thẻ, huy hiệu cấp độ, huy hiệu bảo vệ hệ thống và điểm số thủ phạm căn lề phải.
+    - **Dòng 2**: Tên file thực thi (13px in đậm), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
+    - **Dòng 3 (Đơn hàng hành động kèm ghi chú rút gọn)**:
+      1. **Nút Chính (Primary)**: `Đóng an toàn` (Tô đặc màu xanh dương `COLOR_INFO`, chữ tối màu `COLOR_BG` đậm nét).
+      2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện ở trạng thái vô hiệu hoá).
+      3. **Nút Phụ (Secondary)**: `Mở thư mục` và `Bỏ qua thủ phạm này` (Dạng viền tối giản).
+      4. **Ghi chú ngắn gọn cùng dòng**: Khi nút `Bắt buộc tắt` chưa khả dụng, hiển thị biểu tượng cảnh báo ⚠️ kèm thông điệp ngắn gọn ngay cạnh các nút bấm: `Tiến trình hệ thống bảo vệ`, `Chờ an toàn (Xs)` hoặc `Bật sau khi đóng an toàn`. Tooltip chi tiết vẫn được hiển thị đầy đủ khi rà chuột.
 - **Khi không có thủ phạm duy nhất (No Single Culprit)**:
   - **Trường hợp máy mượt mà (`PressureState::Smooth`)**:
-    - Hiển thị 1 dòng duy nhất siêu gọn: Biểu tượng dấu kiểm tra ✔ xanh lá (`COLOR_ACCENT_OK`), nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú `— Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.`
+    - Biểu tượng dấu kiểm tra ✔ xanh lá (`COLOR_ACCENT_OK`), nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú `— Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.` Toàn bộ thông điệp được **căn giữa theo chiều dọc** trong slot 64px, tạo cảm giác thoáng đãng và bình yên.
   - **Trường hợp hệ thống chịu tải cao hoặc quá tải (`PressureState::Strained` / `Overloaded`)**:
-    - Để triệt tiêu hoàn toàn mâu thuẫn trạng thái (State Inconsistency — huy hiệu trên thanh đỉnh báo "Quá tải" nhưng banner lại báo "Máy chạy mượt"), banner lập tức kích hoạt chế độ cảnh báo đồng bộ với màu vàng hổ phách (`COLOR_WARNING`).
-    - Biểu tượng tam giác cảnh báo ▲ màu vàng, tiêu đề `Hệ thống đang quá tải` (hoặc `Hệ thống đang chịu tải cao`), đi kèm thông điệp phụ rõ ràng: `— Chưa xác định được một thủ phạm rõ ràng, nhiều tiến trình cùng chiếm tài nguyên.`
-    - Tuyệt đối không hiển thị thông điệp "mượt" khi áp lực tài nguyên đang ở mức cao.
+    - Đồng bộ cảnh báo màu vàng hổ phách (`COLOR_WARNING`) với biểu tượng tam giác cảnh báo ▲, tiêu đề `Hệ thống đang quá tải` (hoặc `Hệ thống đang chịu tải cao`) và phụ chú `— Chưa xác định được một thủ phạm rõ ràng, nhiều tiến trình cùng chiếm tài nguyên.`
+    - Nếu có nhóm tiến trình nổi bật, cung cấp thêm hàng nút `Lọc trong bảng` và `Bỏ qua nhóm này`. Toàn bộ nội dung được căn giữa theo chiều dọc trong cùng slot 64px.
 
 ### 5.3. Biểu đồ Sparkline Thời gian Thực (Real-time Sparklines)
 - Gồm 3 biểu đồ đồng thời theo dõi lịch sử 60 giây của **CPU**, **RAM** và **Tốc độ Đĩa I/O**.
@@ -190,17 +192,27 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 
 ---
 
-## 8. Bố Cục Thích Ứng (Responsive Layout)
+## 8. Bố Cục Thích Ứng & Ổn Định Vị Trí (Responsive & Stable Vertical Layout)
 
-Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Windows (100%, 125%, 150%, 200%) và giữ tỷ lệ hoàn hảo tại kích thước cửa sổ tối thiểu được định nghĩa trong kiến trúc:
+Giao diện áp dụng cơ chế phân bổ vị trí dọc nghiêm ngặt:
+1. **Header Banner**: Tên ứng dụng, Huy hiệu trạng thái, Nút Tạm dừng, Mini Chips tài nguyên.
+2. **Đang theo dõi (Watched Panel)**: Slot cố định 64px (`WATCHED_SLOT_HEIGHT`).
+3. **Khu vực Trạng thái / Thẻ thủ phạm (Status Area)**: Slot cố định 64px (`STATUS_SLOT_HEIGHT`).
+4. **Biểu đồ Sparklines**: Chiều cao 50px cố định cho 3 tài nguyên (CPU, RAM, Đĩa).
+5. **Bảng tiến trình (Process Table)**: Chiếm toàn bộ phần chiều cao còn lại.
+6. **Thanh trạng thái đáy (Bottom Status Bar)**: Cố định bằng `Panel::bottom`.
+
+Nhờ cơ chế slot cố định bất biến cho cả 2 khối Đang theo dõi và Thẻ trạng thái, các khối Biểu đồ và Bảng tiến trình **tuyệt đối không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi** (không bị đẩy lên hay hạ xuống).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │ [SlowSpot] [DEMO] (● Mượt mà) (⏸ ĐANG TẠM DỪNG)      [Tạm dừng] [Chips]│
 ├────────────────────────────────────────────────────────────────────────┤
+│ ĐANG THEO DÕI [0]             Chưa có tiến trình nào cần theo dõi      │
+├────────────────────────────────────────────────────────────────────────┤
 │ THỦ PHẠM CHÍNH  [◆ Thủ phạm]                        Điểm thủ phạm: 92  │
 │ heavy_render.exe (PID 1420) — chiếm 88% CPU                            │
-│ [ Đóng an toàn ]  [ Bắt buộc tắt (4s) ]  [ Mở thư mục ]  [ Bỏ qua ]     │
+│ [ Đóng an toàn ] [ Bắt buộc tắt (4s) ] [ Mở thư mục ] [ Bỏ qua ] ⚠️...  │
 ├────────────────────────────────────────────────────────────────────────┤
 │ [ CPU 60s: 88.0%  ]    [ RAM 60s: 42.1%  ]    [ Đĩa I/O: 12.5 MB/s ]   │
 │ ~~~~~~~/\~~~~~         ~~~~~~~~~---------     _/\___/\____________     │
@@ -216,7 +228,10 @@ Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Wind
 │                                      Cập nhật: vừa xong | 120 tiến trình│
 └────────────────────────────────────────────────────────────────────────┘
 ```
-- Độ rộng tối thiểu: `760px` x `520px` không bao giờ bị vỡ khung hay xuất hiện thanh cuộn ngang ngoài ý muốn.
+- **Cam kết số hàng hiển thị của bảng tiến trình**:
+  - Tại độ phân giải tiêu chuẩn `1000px` x `680px`: Luôn hiển thị $\ge 9$ hàng tiến trình đồng thời (thực tế hiển thị 10–11 hàng).
+  - Tại độ phân giải tối thiểu `760px` x `520px`: Luôn hiển thị $\ge 5$ hàng tiến trình đồng thời (thực tế hiển thị 5–6 hàng).
+  - Đã được bảo vệ bằng kiểm thử tự động `ui::app::tests::test_visible_rows_count_at_supported_resolutions` và `ui::app::tests::test_layout_slots_constant_height_across_states`.
 - Các cột bảng được co giãn thông minh, cột tên tiến trình chiếm toàn bộ không gian còn lại và tự động cắt bằng dấu ba chấm `…` nếu quá dài.
 
 
@@ -225,8 +240,11 @@ Giao diện tự động co giãn sắc nét trên mọi tỷ lệ High-DPI Wind
 ## 9. Thiết kế Giao diện Giám sát Đợt Quá tải & Nhóm Thủ phạm
 
 ### 9.1. Khung "Đang theo dõi" (Watched Panel)
-- **Vị trí**: Đặt compact ngay phía trên bảng tiến trình.
-- **Trạng thái rỗng**: Khi không có tiến trình nào được theo dõi, panel tự động thu gọn hoàn toàn (chiều cao = 0) để nhường toàn bộ diện tích cho bảng tiến trình, đảm bảo giao diện luôn hiển thị >= 20 dòng ở kích thước chuẩn.
+- **Vị trí**: Đặt cố định ngay phía trên Thẻ trạng thái/Thủ phạm chính (dưới Header Banner) theo đúng phân tầng nhận thức.
+- **Slot Cố Định Bất Biến (`WATCHED_SLOT_HEIGHT = 64px`)**: Chiều cao khung luôn được bảo lưu cố định (tiêu đề + 2 hàng tiến trình).
+- **Trạng thái rỗng (0 tiến trình)**: Hiển thị dòng chữ mờ căn giữa `Chưa có tiến trình nào cần theo dõi` (`WATCHED_EMPTY_PLACEHOLDER`). Tuyệt đối không co cụm hay ẩn đi để không gây xê dịch các thành phần phía dưới.
+- **Trạng thái có từ 1–2 tiến trình**: Hiển thị 1–2 hàng cố định bên trong slot.
+- **Trạng thái có > 2 tiến trình**: Vùng danh sách tự động kích hoạt thanh cuộn dọc nội bộ (`ScrollArea::vertical()`), cắt xén nghiêm ngặt bên trong slot 40px và tuyệt đối không bao giờ phình to (never grow), giữ vị trí ổn định 100% cho biểu đồ và bảng tiến trình.
 - **Thẻ dòng tiến trình theo dõi**:
   - Huy hiệu trạng thái kết hợp hình học và văn bản (chuẩn WCAG AA):
     - `Thủ phạm` (Diamond ◆ đỏ `#EF4444`): Đang trong đợt quá tải mức thủ phạm (điểm >= 70).

@@ -39,6 +39,12 @@ pub struct SlowSpotApp {
     last_update_instant: Option<Instant>,
 }
 
+/// Fixed height of the "Đang theo dõi" (Watched) panel slot.
+pub const WATCHED_SLOT_HEIGHT: f32 = 64.0;
+
+/// Fixed height of the status area (Hero culprit card / smooth calm banner) slot.
+pub const STATUS_SLOT_HEIGHT: f32 = 64.0;
+
 /// Active visual presentation state of the hero card.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeroBannerState {
@@ -186,12 +192,12 @@ impl SlowSpotApp {
                 self.render_bottom_status_bar(ui, now);
             });
 
-        // 5. Central Dashboard Content with 12px horizontal and 8px vertical outer margin
+        // 5. Central Dashboard Content with 12px horizontal and 4px vertical outer margin
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
                     .fill(COLOR_BG)
-                    .inner_margin(Margin::symmetric(12, 6)),
+                    .inner_margin(Margin::symmetric(12, 4)),
             )
             .show(ui, |ui| {
                 // Clip strictly to central panel bounds to prevent painting over status bar
@@ -203,19 +209,19 @@ impl SlowSpotApp {
 
                 // Header Banner (Title, Demo, Status Pill, Mini Chips, Pause Button)
                 self.render_header_banner(ui, now);
-                ui.add_space(3.0);
+                ui.add_space(2.0);
 
-                // Top Culprit Hero Card / Smooth Status Banner
+                // Watched Panel ("Đang theo dõi" - Fixed slot above status card)
+                self.render_watched_panel(ui, now);
+                ui.add_space(2.0);
+
+                // Top Culprit Hero Card / Smooth Status Banner - Fixed slot
                 self.render_top_culprit_card(ui, now);
-                ui.add_space(3.0);
+                ui.add_space(2.0);
 
                 // Real-time Sparklines (CPU, RAM, Disk)
                 self.render_sparklines(ui);
-                ui.add_space(3.0);
-
-                // Watched Panel ("Đang theo dõi")
-                self.render_watched_panel(ui, now);
-                ui.add_space(3.0);
+                ui.add_space(2.0);
 
                 // Process Table (Takes remaining vertical space, internal vertical scroll only)
                 self.render_process_table(ui, now);
@@ -556,11 +562,24 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(fill_color)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(12, 5))
+            .inner_margin(Margin::symmetric(10, 3))
             .stroke(Stroke::new(1.0, border_color));
 
-        card_frame.show(ui, |ui| {
+        let (slot_rect, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), STATUS_SLOT_HEIGHT),
+            Sense::hover(),
+        );
+        let slot_clip = ui.clip_rect().intersect(slot_rect);
+        let mut slot_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(slot_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        slot_ui.set_clip_rect(slot_clip);
+
+        card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
+            ui.set_min_height(STATUS_SLOT_HEIGHT - 6.0);
             match banner_state {
                 HeroBannerState::Culprit(target) => {
                     let tokens = level_tokens(target.severity);
@@ -575,7 +594,7 @@ impl SlowSpotApp {
                                 .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
                         widgets::severity_badge(ui, target.severity);
                         ui.add_space(4.0);
 
@@ -594,44 +613,44 @@ impl SlowSpotApp {
                                     target.score
                                 ))
                                 .color(tokens.border)
-                                .size(FONT_SIZE_BODY)
+                                .size(FONT_SIZE_CAPTION)
                                 .strong(),
                             );
                         });
                     });
 
-                    ui.add_space(3.0);
+                    ui.add_space(1.0);
 
                     // Row 2: Culprit Process Name & Bottleneck Explanation
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(&target.record.name)
                                 .color(COLOR_FOREGROUND)
-                                .size(FONT_SIZE_SUBHEADING)
+                                .size(FONT_SIZE_BODY)
                                 .strong(),
                         );
                         ui.label(
                             RichText::new(format!("(PID {})", pid))
                                 .color(COLOR_MUTED_FOREGROUND)
-                                .size(FONT_SIZE_BODY),
+                                .size(FONT_SIZE_CAPTION),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
                         let explanation = format_bottleneck_explanation(&target);
                         ui.label(
                             RichText::new(format!("— {explanation}"))
                                 .color(COLOR_FOREGROUND)
-                                .size(FONT_SIZE_BODY),
+                                .size(FONT_SIZE_CAPTION),
                         );
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(2.0);
 
-                    // Row 3: Action Buttons with strict visual hierarchy
+                    // Row 3: Compact single row of actions with shorter note
                     let can_kill = self.state.can_force_kill(pid, now);
                     let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
 
                     ui.horizontal(|ui| {
-                        // 1. Primary Button: Graceful Close ("Đóng an toàn") - Solid fill, NO fake focus outline
+                        // 1. Primary Button: Graceful Close ("Đóng an toàn")
                         let (close_fill, close_color, close_stroke) = if killable {
                             (COLOR_INFO, COLOR_BG, Stroke::NONE)
                         } else {
@@ -645,7 +664,7 @@ impl SlowSpotApp {
                         let close_btn = egui::Button::new(
                             RichText::new(strings::BTN_GRACEFUL_CLOSE)
                                 .color(close_color)
-                                .size(FONT_SIZE_BODY)
+                                .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         )
                         .fill(close_fill)
@@ -671,7 +690,7 @@ impl SlowSpotApp {
                             }
                         }
 
-                        // 2. Danger Button: Force Kill ("Bắt buộc tắt") - Solid red only when eligible
+                        // 2. Danger Button: Force Kill ("Bắt buộc tắt")
                         let kill_text = match wait_rem {
                             Some(s) if s > 0 => format!("{} ({}s)", strings::BTN_FORCE_KILL, s),
                             _ => strings::BTN_FORCE_KILL.to_string(),
@@ -690,7 +709,7 @@ impl SlowSpotApp {
                         let kill_btn = egui::Button::new(
                             RichText::new(kill_text)
                                 .color(kill_color)
-                                .size(FONT_SIZE_BODY)
+                                .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         )
                         .fill(kill_fill)
@@ -767,33 +786,27 @@ impl SlowSpotApp {
                                 Duration::from_secs(4),
                             );
                         }
-                    });
 
-                    // Row 4: Immediate inline notice when Force Kill is disabled (Requirement 6)
-                    if !can_kill || !killable {
-                        let reason_text = if !killable {
-                            strings::NOTICE_SYSTEM_PROTECTED.to_string()
-                        } else if let Some(s) = wait_rem {
-                            format!(
-                                "{} {s} {}",
-                                strings::NOTICE_WAIT_GRACEFUL_PREFIX,
-                                strings::NOTICE_WAIT_GRACEFUL_SUFFIX
-                            )
-                        } else {
-                            strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT.to_string()
-                        };
+                        // Compact inline shorter note on the same action row
+                        if !can_kill || !killable {
+                            ui.add_space(4.0);
+                            let note_text = if !killable {
+                                "Tiến trình hệ thống bảo vệ"
+                            } else if let Some(s) = wait_rem {
+                                &format!("Chờ an toàn ({s}s)")
+                            } else {
+                                "Bật sau khi đóng an toàn"
+                            };
 
-                        ui.add_space(3.0);
-                        ui.horizontal(|ui| {
                             widgets::draw_warning_icon(ui, COLOR_MUTED_FOREGROUND, 11.0);
                             ui.add_space(2.0);
                             ui.label(
-                                RichText::new(reason_text)
+                                RichText::new(note_text)
                                     .color(COLOR_MUTED_FOREGROUND)
                                     .size(FONT_SIZE_CAPTION),
                             );
-                        });
-                    }
+                        }
+                    });
                 }
                 HeroBannerState::HighPressureNoCulprit {
                     title,
@@ -801,6 +814,14 @@ impl SlowSpotApp {
                     group_culprit_name,
                     color,
                 } => {
+                    let content_h = if group_culprit_name.is_some() {
+                        40.0
+                    } else {
+                        18.0
+                    };
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 6.0 - content_h) / 2.0).max(0.0);
+                    ui.add_space(pad_top);
+
                     ui.horizontal(|ui| {
                         widgets::draw_warning_icon(ui, color, 16.0);
                         ui.add_space(4.0);
@@ -818,7 +839,7 @@ impl SlowSpotApp {
                     });
 
                     if let Some(ref group_name) = group_culprit_name {
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                         ui.horizontal(|ui| {
                             let filter_btn = egui::Button::new(
                                 RichText::new("Lọc trong bảng")
@@ -861,6 +882,9 @@ impl SlowSpotApp {
                     subtitle,
                     color,
                 } => {
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 6.0 - 18.0) / 2.0).max(0.0);
+                    ui.add_space(pad_top);
+
                     ui.horizontal(|ui| {
                         widgets::draw_checkmark(ui, color, 16.0);
                         ui.add_space(4.0);
@@ -918,7 +942,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_DESTRUCTIVE,
-                    size: Vec2::new(w0, 62.0),
+                    size: Vec2::new(w0, 50.0),
                 },
                 &cpu_values,
             );
@@ -931,7 +955,7 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: 100.0,
                     line_color: COLOR_WARNING,
-                    size: Vec2::new(w1, 62.0),
+                    size: Vec2::new(w1, 50.0),
                 },
                 &ram_values,
             );
@@ -944,28 +968,38 @@ impl SlowSpotApp {
                     min_val: 0.0,
                     max_val: max_disk,
                     line_color: COLOR_ACCENT_OK,
-                    size: Vec2::new(w2, 62.0),
+                    size: Vec2::new(w2, 50.0),
                 },
                 &disk_values,
             );
         });
     }
 
-    /// Renders the compact "Đang theo dõi" panel above the process table.
+    /// Renders the compact "Đang theo dõi" panel above the status area in a fixed-height slot.
     fn render_watched_panel(&mut self, ui: &mut egui::Ui, now: Instant) {
         let episodes: Vec<Episode> = self.state.watched_episodes().to_vec();
-        if episodes.is_empty() {
-            return;
-        }
+
+        let (slot_rect, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), WATCHED_SLOT_HEIGHT),
+            Sense::hover(),
+        );
+        let slot_clip = ui.clip_rect().intersect(slot_rect);
+        let mut slot_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(slot_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        slot_ui.set_clip_rect(slot_clip);
 
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(10, 6))
+            .inner_margin(Margin::symmetric(10, 3))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
-        card_frame.show(ui, |ui| {
+        card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
+            ui.set_min_height(WATCHED_SLOT_HEIGHT - 6.0);
 
             // Header row
             ui.horizontal(|ui| {
@@ -1008,20 +1042,35 @@ impl SlowSpotApp {
                 });
             });
 
-            ui.add_space(4.0);
+            ui.add_space(2.0);
 
-            // Display watched episodes
-            let max_panel_height = 130.0;
-            egui::ScrollArea::vertical()
-                .id_salt("watched_panel_scroll")
-                .max_height(max_panel_height)
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 4.0;
-                    for ep in episodes {
-                        self.render_watched_row(ui, &ep, now);
-                    }
-                });
+            // Content area: fixed height (~40.0px), exactly 2 rows visible.
+            // Shows muted placeholder if 0 episodes; scrolls internally without growing if > 2 episodes.
+            let content_height = 40.0;
+            if episodes.is_empty() {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(ui.available_width(), content_height),
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        ui.label(
+                            RichText::new(strings::WATCHED_EMPTY_PLACEHOLDER)
+                                .color(COLOR_MUTED_FOREGROUND)
+                                .size(FONT_SIZE_CAPTION),
+                        );
+                    },
+                );
+            } else {
+                egui::ScrollArea::vertical()
+                    .id_salt("watched_panel_scroll")
+                    .max_height(content_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        for ep in &episodes {
+                            self.render_watched_row(ui, ep, now);
+                        }
+                    });
+            }
         });
     }
 
@@ -1037,7 +1086,7 @@ impl SlowSpotApp {
         let row_frame = egui::Frame::new()
             .fill(COLOR_BG)
             .corner_radius(RADIUS_SM)
-            .inner_margin(Margin::symmetric(8, 4))
+            .inner_margin(Margin::symmetric(6, 1))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         row_frame.show(ui, |ui| {
@@ -2375,14 +2424,14 @@ mod tests {
         }
     }
 
-    /// Verifies visible rows requirement: >= 12 rows at 1000x680 and >= 8 at 760x520 (Defect 3).
+    /// Verifies visible rows requirement: >= 9 rows at 1000x680 and >= 5 at 760x520 (Addendum requirement 3).
     #[test]
     fn test_visible_rows_count_at_supported_resolutions() {
         use crate::collector::SampleSource;
         let ctx = egui::Context::default();
         crate::ui::theme::install(&ctx);
 
-        let test_cases = [(1000.0f32, 680.0f32, 12usize), (760.0, 520.0, 8)];
+        let test_cases = [(1000.0f32, 680.0f32, 9usize), (760.0, 520.0, 5)];
 
         for &(win_w, win_h, expected_min_rows) in &test_cases {
             let (_tx, rx) = std::sync::mpsc::channel();
@@ -3289,5 +3338,197 @@ mod tests {
         );
 
         output.textures_delta.clear();
+    }
+
+    /// Verifies that the fixed slot heights (Watched and Status Area) remain constant
+    /// across varying states (Empty/Populated/Scrolling watchlist, Smooth/Culprit/HighPressure),
+    /// guaranteeing that Sparklines and Table anchors never move (Addendum requirements 1, 2, 4).
+    #[test]
+    fn test_layout_slots_constant_height_across_states() {
+        use crate::model::*;
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let win_w = 1000.0f32;
+        let win_h = 680.0f32;
+
+        let base_totals = SystemTotals {
+            cpu_percent: 20.0,
+            memory_used_bytes: 4 * 1024 * 1024 * 1024,
+            memory_total_bytes: 16 * 1024 * 1024 * 1024,
+            disk_bps: 1024.0 * 1024.0,
+        };
+
+        // State 1: SmoothHealthy, 0 watched items (placeholder shown)
+        let snap1 = SystemSnapshot {
+            timestamp_ms: 1000,
+            totals: base_totals.clone(),
+            processes: vec![],
+            pressure: PressureState::Smooth,
+            watched: vec![],
+            breakdown: None,
+        };
+
+        // State 2: Culprit state with active killable culprit, 0 watched items
+        let culprit_proc = ScoredProcess {
+            record: ProcessRecord {
+                pid: 101,
+                parent_pid: None,
+                name: "heavy_task.exe".to_string(),
+                exe_path: None,
+                cpu_percent: 85.0,
+                memory_bytes: 2 * 1024 * 1024 * 1024,
+                disk_read_bps: 1024.0,
+                disk_write_bps: 1024.0,
+            },
+            kind: ProcessKind::UserApp,
+            score: 95.0,
+            severity: Severity::Culprit,
+            main_bottleneck: Bottleneck::Cpu,
+            killable: true,
+        };
+        let snap2 = SystemSnapshot {
+            timestamp_ms: 2000,
+            totals: SystemTotals {
+                cpu_percent: 85.0,
+                ..base_totals.clone()
+            },
+            processes: vec![culprit_proc.clone()],
+            pressure: PressureState::Overloaded,
+            watched: vec![],
+            breakdown: None,
+        };
+
+        // State 3: High pressure without single culprit, with 1 watched episode
+        let ep1 = Episode {
+            pid: 201,
+            name: "watched_service.exe".to_string(),
+            process_count: 1,
+            started_at: 1000,
+            peak_score: 80.0,
+            peak_cpu: 75.0,
+            peak_ram_bytes: 1024 * 1024 * 1024,
+            peak_disk_bps: 5.0 * 1024.0 * 1024.0,
+            overloaded_seconds: 10,
+            last_overloaded_at: 2000,
+            state: EpisodeState::Cooling,
+            kind: ProcessKind::BackgroundService,
+            killable: true,
+            score_history: vec![80.0, 60.0, 40.0],
+        };
+        let snap3 = SystemSnapshot {
+            timestamp_ms: 3000,
+            totals: SystemTotals {
+                cpu_percent: 92.0,
+                ..base_totals.clone()
+            },
+            processes: vec![],
+            pressure: PressureState::Overloaded,
+            watched: vec![ep1],
+            breakdown: None,
+        };
+
+        // State 4: Culprit with 5 watched episodes (exceeding 2 rows, triggers scroll clipping)
+        let mut watched_many = Vec::new();
+        for i in 1..=5 {
+            watched_many.push(Episode {
+                pid: 300 + i,
+                name: format!("daemon_{i}.exe"),
+                process_count: 1,
+                started_at: 1000,
+                peak_score: 75.0,
+                peak_cpu: 40.0,
+                peak_ram_bytes: 512 * 1024 * 1024,
+                peak_disk_bps: 0.0,
+                overloaded_seconds: 15,
+                last_overloaded_at: 2500,
+                state: EpisodeState::Overloaded,
+                kind: ProcessKind::BackgroundService,
+                killable: true,
+                score_history: vec![75.0],
+            });
+        }
+        let snap4 = SystemSnapshot {
+            timestamp_ms: 4000,
+            totals: SystemTotals {
+                cpu_percent: 88.0,
+                ..base_totals
+            },
+            processes: vec![culprit_proc],
+            pressure: PressureState::Overloaded,
+            watched: watched_many,
+            breakdown: None,
+        };
+
+        let snapshots = vec![snap1, snap2, snap3, snap4];
+        let mut sparkline_anchors = Vec::new();
+        let mut table_anchors = Vec::new();
+
+        for (idx, snap) in snapshots.into_iter().enumerate() {
+            let (_tx, rx) = std::sync::mpsc::channel();
+            let mut app = SlowSpotApp {
+                rx,
+                actions: Box::new(crate::ui::DemoActions),
+                state: ViewState::new(),
+                demo: false,
+                confirm_kill: None,
+                last_update_instant: None,
+            };
+            app.state.push_snapshot(snap, Instant::now());
+
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(win_w, win_h),
+                )),
+                ..Default::default()
+            };
+
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.render_ui(ui, Instant::now());
+            });
+
+            let mut spark_y = None;
+            let mut table_y = None;
+
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    let text = text_shape.galley.text();
+                    if text == strings::SPARKLINE_CPU_TITLE {
+                        spark_y = Some(text_shape.pos.y);
+                    } else if text == strings::TABLE_TITLE {
+                        table_y = Some(text_shape.pos.y);
+                    }
+                }
+            }
+
+            output.textures_delta.clear();
+
+            let s_y = spark_y.unwrap_or_else(|| panic!("State {idx}: Sparklines title not found"));
+            let t_y = table_y.unwrap_or_else(|| panic!("State {idx}: Table title not found"));
+
+            sparkline_anchors.push(s_y);
+            table_anchors.push(t_y);
+        }
+
+        // Verify that across ALL states, Sparklines and Table Y positions are completely constant!
+        for (i, (&s_y, &t_y)) in sparkline_anchors.iter().zip(&table_anchors).enumerate() {
+            assert!(
+                (s_y - sparkline_anchors[0]).abs() < 0.001,
+                "Sparklines Y anchor shifted in state {i}: {} vs initial {}",
+                s_y,
+                sparkline_anchors[0]
+            );
+            assert!(
+                (t_y - table_anchors[0]).abs() < 0.001,
+                "Table Y anchor shifted in state {i}: {} vs initial {}",
+                t_y,
+                table_anchors[0]
+            );
+        }
+
+        // Verify constant slot height constants
+        assert_eq!(WATCHED_SLOT_HEIGHT, 64.0);
+        assert_eq!(STATUS_SLOT_HEIGHT, 64.0);
     }
 }

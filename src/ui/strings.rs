@@ -46,6 +46,7 @@ pub const HERO_REASON_PREFIX: &str = "Nguyên nhân:";
 
 // Watched Processes Panel ("Đang theo dõi")
 pub const WATCHED_PANEL_TITLE: &str = "Đang theo dõi";
+pub const WATCHED_EMPTY_PLACEHOLDER: &str = "Chưa có tiến trình nào cần theo dõi";
 pub const WATCHED_BADGE_OVERLOADED: &str = "Quá tải";
 pub const WATCHED_BADGE_COOLING_PREFIX: &str = "Hạ nhiệt (còn ";
 pub const WATCHED_BADGE_COOLING_SUFFIX: &str = "s)";
@@ -168,6 +169,7 @@ mod tests {
         HERO_PROTECTED_BADGE,
         HERO_REASON_PREFIX,
         WATCHED_PANEL_TITLE,
+        WATCHED_EMPTY_PLACEHOLDER,
         WATCHED_BADGE_OVERLOADED,
         WATCHED_BADGE_COOLING_PREFIX,
         WATCHED_BADGE_COOLING_SUFFIX,
