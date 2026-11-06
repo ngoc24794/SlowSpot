@@ -1,237 +1,148 @@
-# SlowSpot — Giám sát & Chỉ điểm Tiến trình Làm chậm PC Windows
+# SlowSpot — Find What Is Slowing Down Your Windows PC
 
 [![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20(64--bit)-blue.svg)](https://microsoft.com)
-[![CRT](https://img.shields.io/badge/CRT-Static%20Linked%20(Zero%20DLL)-success.svg)](#tính-năng-nổi-bật)
+[![CRT](https://img.shields.io/badge/CRT-statically%20linked-success.svg)](#features)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**SlowSpot** là ứng dụng desktop Windows độc lập (standalone portable) siêu nhẹ viết bằng Rust, giúp người dùng giải quyết tức thì câu hỏi khi máy tính bị đơ hoặc giật lag: **"Tiến trình nào đang thực sự làm chậm PC của tôi, và tôi nên xử lý thế nào?"**
+**SlowSpot** is a tiny, standalone, portable Windows desktop app written in Rust. It answers one question when your PC gets sluggish: **"Which process is actually slowing my computer down, and what should I do about it?"**
 
-Thay vì hiển thị hàng trăm dòng số liệu thô và đảo vị trí liên tục như Windows Task Manager, SlowSpot tự động tổng hợp tải đa chiều (CPU, RAM, Disk I/O) theo mô hình **Tài nguyên chi phối (Dominant Resource)** kết hợp bộ giảm xóc ổn định (damping), chỉ thẳng "thủ phạm" và đưa ra hành động xử lý an toàn bằng tiếng Việt.
+Instead of showing hundreds of raw, constantly reshuffling numbers like Task Manager, SlowSpot combines CPU, RAM and disk I/O into a single score using a **dominant-resource** model with damping, points at the culprit, and offers safe actions to deal with it.
 
----
-
-## 📸 Minh hoạ Giao diện
-
-```
-+========================================================================================+
-| SlowSpot - Trợ lý Giám sát Hiệu năng Windows                                  [_][口][X]|
-+----------------------------------------------------------------------------------------+
-| ⚠️  HỆ THỐNG ĐANG CĂNG THẲNG: CPU 91.5% | ĐĨA 64.2 MB/s | RAM 82.4%                     |
-+----------------------------------------------------------------------------------------+
-| [ THỦ PHẠM CHÍNH ]                                                                     |
-|  🔴 premiere_render.exe (PID: 14208) — Điểm tác hại: 91 / 100 [Nghiêm trọng]          |
-|  Nguyên nhân: Chiếm dụng CPU tới 89.2% làm nghẽn năng lực xử lý                        |
-|                                                                                        |
-|  [Đóng ứng dụng an toàn]     [Bỏ qua thủ phạm này]     [Mở thư mục chứa file]          |
-+----------------------------------------------------------------------------------------+
-| LỊCH SỬ ÁP LỰC HỆ THỐNG (60s gần nhất)                                                 |
-| CPU  [ ▂▃▅▆▇██████████████████████████████████████████████████████████████████ ]  91.5% |
-| ĐĨA  [        ▂▃▅▆▇███████████████████████████████████████████████████████████ ] 64.2M/s|
-| RAM  [ ▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅ ]  82.4% |
-+----------------------------------------------------------------------------------------+
-| DANH SÁCH TIẾN TRÌNH CHI TIẾT                [ Tìm kiếm tiến trình...          🔍 ]    |
-| Tên tiến trình          PID     Điểm      CPU%        Đọc/Ghi Đĩa         Bộ nhớ (RAM) |
-|----------------------------------------------------------------------------------------|
-| premiere_render.exe    14208     91      89.2%         1.2 MB/s              4.85 GB   |
-| chrome.exe             11044     35       4.1%         0.4 MB/s              1.20 GB   |
-| code.exe                8920     18       1.5%         0.1 MB/s            820.00 MB   |
-| explorer.exe            4112      8       0.5%         0.0 MB/s            145.00 MB   |
-| csrss.exe                760      0       0.0%         0.0 MB/s             12.50 MB 🔒|
-+========================================================================================+
-```
-
-### Tính năng tuỳ chọn "Bỏ qua thủ phạm này" (Ignore Culprit)
-Khi một tiến trình đang chạy nặng là tác vụ bạn **chủ động thực hiện** (ví dụ bạn đang render video Adobe Premiere, biên dịch dự án lớn, hoặc tải game qua Steam), bạn chỉ cần nhấp vào nút **[Bỏ qua thủ phạm này]**. SlowSpot sẽ ghi nhận tiến trình vào danh sách bỏ qua tạm thời trong phiên làm việc và ngay lập tức chỉ điểm tiến trình đứng thứ hai nếu hệ thống vẫn bị nghẽn.
+> The application UI is in Vietnamese. Project documents under `docs/` are also in Vietnamese; code, comments, commit messages and logs are in English.
 
 ---
 
-## ⚡ Tính năng Nổi bật
+## Features
 
-1. **Standalone & Zero-Dependency**:
-   - File thực thi duy nhất `slowspot.exe` kích thước chỉ **~5.29 MB** (gói nén zip chỉ **~2.34 MB**).
-   - Link tĩnh toàn bộ C Runtime (`+crt-static`), **không yêu cầu** cài đặt Microsoft Visual C++ Redistributable (`vcruntime140.dll` / `msvcp140.dll`).
-   - Nhúng sẵn font chữ tiếng Việt **Noto Sans** chất lượng cao qua macro `include_bytes!`, hiển thị tiếng Việt sắc nét không lỗi ô vuông.
-2. **Không tự làm đơ máy**:
-   - Mức chiếm dụng CPU khi giám sát **< 0.1%** nhờ cơ chế Reactive Event Loop (chỉ render khi có dữ liệu mới hoặc tương tác chuột).
-   - Tiêu thụ RAM cực thấp (**~47 MB Private Memory**).
-   - **0 MB/s** Disk I/O (không ghi log hay file tạm vào ổ đĩa trong quá trình chạy).
-3. **Thuật toán Dominant-Resource & Damping**:
-   - Tự động nhận diện cổ chai dù là nghẽn CPU (95%), nghẽn Đĩa I/O (đĩa HDD/SSD 100%), hay áp lực cạn kiệt RAM (> 80%).
-   - Bộ đệm 3 chu kỳ ngăn chặn hiện tượng danh sách nhảy giật liên tục.
-4. **Cơ chế An toàn Tuyệt đối**:
-   - Tích hợp **System Safety Filter** khóa cứng nút tắt đối với các tiến trình cốt lõi của Windows (`csrss.exe`, `lsass.exe`, `smss.exe`, ...) nhằm triệt tiêu rủi ro màn hình xanh (BSOD).
-   - Hành động 2 cấp độ: Ưu tiên **Đóng an toàn** (`WM_CLOSE`), nếu sau 5 giây ứng dụng treo cứng mới chuyển sang **Bắt buộc tắt** (`TerminateProcess`).
-   - Xử lý lỗi đồ họa thân thiện: Nếu máy hoàn toàn không có driver GPU (chỉ có OpenGL 1.1 phần mềm của Windows), ứng dụng hiện hộp thoại Win32 tiếng Việt hướng dẫn và thoát êm đẹp, không bao giờ crash im lặng.
-
----
-
-## 🚀 Cách Dùng Bản Portable
-
-1. Tải file `slowspot-portable.zip` hoặc `slowspot.exe` từ thư mục phát hành.
-2. Giải nén vào bất kỳ thư mục nào (hoặc copy trực tiếp file `slowspot.exe` vào USB).
-3. Double-click chạy trực tiếp `slowspot.exe`:
-   - Ứng dụng khởi động ngay lập tức (< 1 giây).
-   - Không cần chạy quyền Administrator đối với nhu cầu thông thường.
-   - Không sinh thêm bất kỳ file tạm hay khóa Registry nào trên máy.
+1. **Standalone and dependency-free**
+   - A single `slowspot.exe` (about 5.7 MB; the portable zip is about 2.5 MB).
+   - The C runtime is statically linked (`+crt-static`): no Visual C++ Redistributable (`vcruntime140.dll` / `msvcp140.dll`) is required.
+   - A Vietnamese-capable font (Noto Sans) is embedded with `include_bytes!`.
+2. **Lightweight**
+   - Monitoring uses well under 1% CPU thanks to an event-driven repaint loop.
+   - About 50 MB of private memory.
+   - No log files, temp files or Registry keys are written while running.
+3. **Dominant-resource scoring with damping**
+   - Detects CPU saturation, disk I/O saturation and RAM pressure (> 80%).
+   - A 3-tick damping window prevents the list from flickering.
+   - Levels: **Suspicious** (score 40–69) and **Culprit** (score 70 and above).
+4. **Overload tracking**
+   - A process that becomes overloaded is tracked from the moment the overload began: **Overloaded → Cooling (N s left) → Recovered / Exited**. The retention window defaults to 120 seconds (`watch_retention_secs`).
+   - When the system is overloaded but no single process is to blame, usage is aggregated by image name to name the heaviest group (for example several `rustc.exe` processes).
+5. **Safety first**
+   - A system-critical whitelist (`csrss.exe`, `lsass.exe`, `smss.exe`, `services.exe`, `winlogon.exe`, `dwm.exe`, `explorer.exe`, …), PID 0/4 and SlowSpot itself can never be closed.
+   - Two-tier actions: **Graceful Close** (`WM_CLOSE`) first; **Force Kill** (`TerminateProcess`) becomes available only if the app does not close within 5 seconds.
+   - The target image name is re-checked before acting, to defend against PID reuse.
+   - If OpenGL cannot be initialised (no GPU driver), a native message box explains why and the app exits cleanly instead of crashing silently.
+6. **Clear UI**
+   - The header badge and the culprit card are colored by level (green / amber / red) and always paired with an icon and text.
+   - 60-second CPU, RAM and disk charts, a searchable Top 20 process table, and an "Ignore this culprit" action for work you started on purpose (video renders, big builds, game downloads).
+   - A stable layout: sections keep fixed slots so nothing jumps when the state changes.
 
 ---
 
-## 🧪 Chế độ Mô phỏng / Thuyết trình (`--demo`)
+## Quick start (portable)
 
-SlowSpot tích hợp sẵn chế độ mô phỏng độc lập (`MockSource` & `DemoActions`), cho phép trải nghiệm và kiểm thử toàn bộ tính năng giao diện mà không tác động đến tiến trình thật trên hệ thống:
+1. Download `slowspot-portable.zip` or `slowspot.exe`.
+2. Extract anywhere (or copy the exe to a USB drive) and double-click `slowspot.exe`.
+   - It starts in under a second.
+   - Administrator rights are not required for normal use.
+
+### Demo mode
 
 ```powershell
 .\slowspot.exe --demo
 ```
 
-Trong chế độ demo:
-- Kịch bản xoay vòng theo giai đoạn: **Bình thường → Đáng ngờ (vàng) → Thủ phạm (đỏ) → Hạ nhiệt → Phục hồi**. Thanh trạng thái hiển thị giai đoạn hiện tại và số giây còn lại.
-- Các nút tương tác ([Đóng an toàn], [Bỏ qua]) chỉ ghi nhận phản hồi giao diện, không dừng bất kỳ tiến trình thật nào của hệ điều hành.
+Demo mode uses a simulated data source and never touches real processes. The scenario loops through **Calm → Suspicious → Culprit → Cooling → Recovered**, and the status bar shows the current phase and the seconds left.
 
-### Theo dõi tiến trình quá tải
-Tiến trình quá tải được theo dõi từ thời điểm bắt đầu: trạng thái **Quá tải → Hạ nhiệt (còn N giây) → Phục hồi/Đã thoát**, giữ lại mặc định 120 giây (`watch_retention_secs`). Khi hệ thống quá tải mà không có một thủ phạm riêng lẻ, SlowSpot gom theo tên tiến trình để chỉ ra nhóm chiếm nhiều tài nguyên nhất.
+### Automated UI screenshots
 
-### Chụp ảnh giao diện tự động (kiểm thử bố cục)
 ```powershell
-.\scripts\shots.ps1        # build release, chụp 4 giai đoạn x 2 kích thước (1000x680, 760x520)
-.\slowspot.exe --demo --screenshot <thư mục> --size 1000x680
+.\scripts\shots.ps1                                  # builds release and captures 4 phases x 2 sizes
+.\slowspot.exe --demo --screenshot <dir> --size 1000x680
 ```
-Ảnh được lấy từ khung hình do chính ứng dụng vẽ (không phụ thuộc màn hình). Các kiểm tra bố cục (không cắt chữ, không chồng chữ, khoảng cách khối) chạy trong `cargo test`.
+
+Screenshots are read from the frame rendered by the app itself, so they do not depend on the desktop session. Layout assertions (no clipped or overlapping text, consistent section gaps, minimum visible table rows) run as part of `cargo test`.
 
 ---
 
-## 🛠️ Build Từ Nguồn (Build from Source)
+## Build from source
 
-### Yêu cầu Tiền đề
-- Hệ điều hành: **Windows 10 / Windows 11 (64-bit)**.
-- Rust Toolchain: `stable-x86_64-pc-windows-msvc` (khuyến nghị Rust 1.80+).
-- Cài đặt Visual Studio Build Tools (C++ Workload).
-
-### Các lệnh biên dịch chuẩn
+Requirements:
+- Windows 10 / 11 (64-bit)
+- Rust toolchain `stable-x86_64-pc-windows-msvc`
+- Visual Studio Build Tools (C++ workload)
 
 ```powershell
-# 1. Kiểm tra cấu hình và mã nguồn
-cargo check
-
-# 2. Biên dịch bản thử nghiệm (Debug)
-cargo build
-
-# 3. Biên dịch bản thương phẩm tối ưu (Release Standalone)
-cargo build --release
+cargo build              # debug build
+cargo build --release    # release build -> target\release\slowspot.exe
 ```
 
-File thực thi đầu ra nằm tại: `target\release\slowspot.exe`.
-
-### Đóng gói tự động (Packaging Script)
-
-Dự án cung cấp script PowerShell tự động hoá toàn bộ quy trình biên dịch release, làm sạch thư mục `dist/`, copy binary, đóng gói `slowspot-portable.zip` và in mã băm SHA256:
+### Packaging
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 ```
 
-Kết quả đóng gói tạo ra trong thư mục `dist/`:
-- `dist/slowspot.exe`
-- `dist/slowspot-portable.zip`
+This builds the release binary and creates `dist/slowspot.exe` and `dist/slowspot-portable.zip`.
 
 ---
 
-## 🔬 Kiểm Thử & Kiểm Định Chất Lượng
-
-Dự án tuân thủ nghiêm ngặt tiêu chuẩn kiểm thử tự động của Rust và kiểm chứng độc lập trên môi trường Windows:
+## Testing and verification
 
 ```powershell
-# Chạy toàn bộ 49+ bài Unit test nội bộ
 cargo test
-
-# Kiểm tra định dạng mã nguồn chuẩn
 cargo fmt --check
-
-# Kiểm tra chất lượng và phát hiện cảnh báo
 cargo clippy --all-targets -- -D warnings
 ```
 
-### Script Kiểm chứng Độc lập (`scripts/verify.ps1`)
+`scripts/verify.ps1` checks the portable binary independently:
+1. Only Windows system DLLs are imported (no `vcruntime140*`, `msvcp140*` or `api-ms-win-crt-*`).
+2. The exe starts in an empty sandbox folder.
+3. The process stays alive after 8 seconds and the window title is `SlowSpot`.
+4. CPU and private memory are measured over about 10 seconds.
+5. No unexpected files are created.
+6. The process is cleaned up.
 
-Script kiểm tra 6 tiêu chí chấp nhận kỹ thuật của bản portable:
-1. **Kiểm tra phụ thuộc DLL**: Dùng `dumpbin` (hoặc bộ giải mã PE header PowerShell thuần) xác nhận 100% DLL là thư viện hệ thống Windows; **không có** `vcruntime140*`, `msvcp140*`, hoặc `api-ms-win-crt-*`.
-2. **Khởi chạy cô lập**: Copy file exe vào thư mục sandbox tạm hoàn toàn trống và chạy với cờ `--demo`.
-3. **Tiến trình sống và tiêu đề cửa sổ**: Xác nhận tiến trình duy trì ổn định sau 8 giây và có `MainWindowTitle` khớp `"SlowSpot"`.
-4. **Đo đạc tài nguyên thực tế**: Theo dõi liên tục trong ~10 giây, tính toán mức chiếm CPU% và Private Memory trung bình.
-5. **Kiểm tra file rác**: Xác nhận ứng dụng không tự ý sinh file mới trong thư mục chạy.
-6. **Dọn dẹp tiến trình**: Tắt chính xác PID đã tạo và thu hồi thư mục sandbox tạm thời.
-
-Chạy lệnh:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
 ```
 
 ---
 
-## 📂 Cấu Trúc Thư Mục & Module
+## Project layout
 
 ```
 SlowSpot/
-├── .cargo/
-│   └── config.toml         # Cấu hình cờ rustflags link tĩnh CRT (+crt-static)
-├── assets/
-│   └── fonts/
-│       ├── NotoSans-Regular.ttf # Font tiếng Việt nhúng trực tiếp vào binary
-│       └── OFL.txt              # Giấy phép Open Font License 1.1
-├── docs/                   # Tài liệu kỹ thuật dự án (Tiếng Việt)
-│   ├── ke-hoach.md         # Kế hoạch và tiến độ thực thi từng task
-│   ├── kien-truc.md        # Thiết kế kiến trúc, công thức tính điểm & số đo thật
-│   └── nghiep-vu.md        # Yêu cầu nghiệp vụ và tiêu chí chấp nhận (AC)
-├── scripts/                # Scripts tự động hoá (PowerShell)
-│   ├── package.ps1         # Đóng gói release ra dist/ và tính SHA256
-│   └── verify.ps1          # Kiểm chứng binary độc lập, đo đạc tài nguyên
-├── src/                    # Mã nguồn chính ứng dụng (Rust)
-│   ├── analyzer/           # Động cơ phân tích, lọc an toàn & tính điểm
-│   │   ├── damping.rs      # Bộ đệm giảm xóc làm dịu đột biến
-│   │   ├── mod.rs          # Điểm kết nối tầng phân tích
-│   │   ├── safety.rs       # Danh sách trắng bảo vệ tiến trình hệ thống
-│   │   └── scoring.rs      # Thuật toán điểm Dominant-Resource & Spike bonus
-│   ├── collector/          # Tầng thu thập số liệu phần cứng định kỳ
-│   │   ├── mock.rs         # Nguồn dữ liệu giả lập phục vụ demo/test
-│   │   ├── mod.rs          # Giao diện SampleSource & quản lý luồng
-│   │   ├── system.rs       # Nguồn thu thập sysinfo thật từ Windows
-│   │   └── worker.rs       # Worker thread chạy ngầm 1000ms gửi qua channel
-│   ├── platform/           # Trừu tượng hoá Win32 API qua windows-sys
-│   │   ├── dialog.rs       # Hiển thị MessageBoxW native khi có lỗi
-│   │   ├── mod.rs          # Xuất khẩu giao diện tầng nền tảng
-│   │   └── process.rs      # Đóng an toàn (WM_CLOSE), cưỡng chế (TerminateProcess)
-│   ├── ui/                 # Giao diện người dùng đồ hoạ (eframe / egui)
-│   │   ├── actions.rs      # Xử lý tương tác nút bấm giao diện
-│   │   ├── app.rs          # Vòng lặp chính eframe và kết xuất khung nhìn
-│   │   ├── mod.rs          # Xuất khẩu giao diện UI
-│   │   ├── state.rs        # Quản lý trạng thái bảng dữ liệu, lọc, sparkline
-│   │   ├── strings.rs      # Tập trung toàn bộ chuỗi hiển thị tiếng Việt
-│   │   ├── theme.rs        # Bảng màu sắc thái trực quan
-│   │   └── widgets.rs      # Các widget tuỳ biến (thẻ hero, sparkline)
-│   ├── config.rs           # Cấu hình chu kỳ lấy mẫu và ngưỡng điểm
-│   ├── lib.rs              # Thư viện gốc của SlowSpot
-│   ├── main.rs             # Điểm khởi nhập binary, bắt cờ dòng lệnh & lỗi khởi tạo
-│   └── model.rs            # Định nghĩa toàn bộ schema dữ liệu & trạng thái
-├── Cargo.toml              # Khai báo metadata và profile tối ưu release
-└── README.md               # Hướng dẫn tổng quan dự án (Tiếng Việt)
+├── .cargo/config.toml       # rustflags: static CRT
+├── assets/fonts/            # embedded Noto Sans + OFL.txt
+├── docs/                    # design documents (Vietnamese)
+├── scripts/                 # package.ps1, verify.ps1, shots.ps1
+└── src/
+    ├── analyzer/            # scoring, damping, safety filter, overload tracker, pressure breakdown
+    ├── collector/           # sampling thread, sysinfo source, mock source
+    ├── platform/            # Win32 actions (graceful close, force kill, message box)
+    ├── ui/                  # eframe/egui UI: app, state, palette, charts, table, widgets, layout assertions
+    ├── config.rs            # runtime configuration
+    ├── model.rs             # shared data types
+    ├── lib.rs
+    └── main.rs              # entry point, CLI flags, startup error handling
 ```
 
 ---
 
-## ⚠️ Giới Hạn Đã Biết (Known Limitations)
+## Known limitations
 
-1. **Yêu cầu Khởi tạo Đồ hoạ OpenGL 2.0+**:
-   - Giao diện SlowSpot xây dựng trên backend `glow` (OpenGL siêu nhẹ). Máy tính cần có driver card đồ hoạ hỗ trợ tối thiểu OpenGL 2.0 trở lên.
-   - Nếu máy hoàn toàn không có driver GPU (chỉ sử dụng driver phần mềm OpenGL 1.1 cổ điển mặc định của Windows), ứng dụng sẽ hiện hộp thoại Win32 thông báo rõ ràng nguyên nhân và thoát an toàn thay vì crash.
-2. **Quyền Quản trị viên (Administrator Privilege)**:
-   - Khi chạy ở quyền người dùng thông thường (Standard Non-Admin), SlowSpot vẫn chẩn đoán và hiển thị đầy đủ tài nguyên của toàn bộ hệ thống.
-   - Tuy nhiên, nếu người dùng muốn can thiệp thao tác đóng/tắt các tiến trình chạy dưới tài khoản đặc quyền cấp cao (`SYSTEM`, `LOCAL SERVICE`), Windows sẽ từ chối truy cập (`Access Denied`). Khi đó giao diện sẽ hiển thị thông báo yêu cầu người dùng khởi chạy SlowSpot dưới quyền Quản trị viên để can thiệp.
-3. **Phạm vi Nền tảng**:
-   - Bản phát hành hiện tại được tối ưu chuyên biệt cho hệ điều hành Windows 10 và Windows 11 (kiến trúc 64-bit `x86_64`).
+1. **OpenGL 2.0+ is required.** The UI uses the `glow` backend. On machines with only the Windows software OpenGL 1.1 driver, SlowSpot shows a message box and exits instead of crashing.
+2. **Administrator rights for protected processes.** Without elevation SlowSpot still shows system-wide usage, but closing processes owned by `SYSTEM` or `LOCAL SERVICE` is denied by Windows. Run SlowSpot as Administrator to act on them.
+3. **Platform.** Only Windows 10 / 11 on 64-bit `x86_64` is supported.
 
 ---
 
-## 📜 Giấy Phép Bản Quyền (License)
+## License
 
-- **Mã nguồn SlowSpot**: chưa chọn giấy phép (chờ chủ dự án quyết định).
-- **Phông chữ Noto Sans**: Được phân phối theo giấy phép mở [SIL Open Font License 1.1](assets/fonts/OFL.txt) (xem chi tiết tại `assets/fonts/OFL.txt`).
+SlowSpot is released under the [MIT License](LICENSE).
+
+The embedded **Noto Sans** font is distributed under the [SIL Open Font License 1.1](assets/fonts/OFL.txt).
