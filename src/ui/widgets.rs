@@ -292,19 +292,24 @@ pub fn mini_metric_chip(
     // Left label (CPU/RAM/Đĩa)
     let pad_left = 4.0;
     let pad_right = 4.0;
-    let label_w = 20.0;
-    let bar_w = 16.0;
-    let gap = 4.0;
+    let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+    let label_galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), font_id, COLOR_MUTED_FOREGROUND);
+    let label_w = label_galley.size().x;
+    let gap = 6.0;
+    let bar_w = 12.0;
 
-    p.text(
-        Pos2::new(rect.left() + pad_left, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(FONT_SIZE_CAPTION),
+    p.galley(
+        Pos2::new(
+            rect.left() + pad_left,
+            rect.center().y - label_galley.size().y / 2.0,
+        ),
+        label_galley,
         COLOR_MUTED_FOREGROUND,
     );
 
-    // Mini bar in the middle with fixed width and non-overlapping bounds
+    // Mini bar in the middle with 6px gap from label and non-overlapping bounds
     let bar_left = rect.left() + pad_left + label_w + gap;
     let bar_h = 4.0;
     let bar_y = rect.center().y - (bar_h / 2.0);
@@ -648,13 +653,58 @@ mod tests {
                     let text_max_x = text_shape.pos.x + text_shape.galley.size().x;
                     let chip_right = text_max_x + 4.0;
                     let chip_left = chip_right - 126.0;
-                    let bar_max_x = chip_left + 44.0;
+                    // Max bar right edge across all label types:
+                    // pad_left(4) + max_label_w(~27) + gap(6) + bar_w(12) = 49.0
+                    let max_bar_right = chip_left + 49.0;
                     assert!(
-                        text_min_x >= bar_max_x,
-                        "Value text '{text}' min x ({text_min_x}) must be >= bar max x ({bar_max_x})"
+                        text_min_x >= max_bar_right,
+                        "Value text '{text}' min x ({text_min_x}) must be >= bar max x ({max_bar_right})"
                     );
                 }
             }
+        }
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn test_mini_metric_chip_label_bar_gap_at_least_6px() {
+        let ctx = egui::Context::default();
+        let raw_input = egui::RawInput::default();
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            mini_metric_chip(ui, "Đĩa", "10 MB/s", 50.0, COLOR_ACCENT_OK);
+            mini_metric_chip(ui, "RAM", "50%", 50.0, COLOR_WARNING);
+            mini_metric_chip(ui, "CPU", "50.0%", 50.0, COLOR_DESTRUCTIVE);
+        });
+
+        let mut labels = Vec::new();
+        let mut rects = Vec::new();
+
+        for shape in &output.shapes {
+            match &shape.shape {
+                egui::epaint::Shape::Text(text_shape) => {
+                    let text = text_shape.galley.text();
+                    if text == "Đĩa" || text == "RAM" || text == "CPU" {
+                        let max_x = text_shape.pos.x + text_shape.galley.size().x;
+                        labels.push((text.to_string(), max_x));
+                    }
+                }
+                egui::epaint::Shape::Rect(rect_shape)
+                    if rect_shape.fill == Color32::from_rgb(22, 28, 40) =>
+                {
+                    rects.push(rect_shape.rect.min.x);
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(labels.len(), 3);
+        assert_eq!(rects.len(), 3);
+        for ((label, label_max_x), bar_min_x) in labels.into_iter().zip(rects) {
+            let gap = bar_min_x - label_max_x;
+            assert!(
+                gap >= 5.99,
+                "Gap between label '{label}' and mini bar must be at least 6px, got {gap}px"
+            );
         }
         output.textures_delta.clear();
     }
