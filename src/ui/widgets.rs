@@ -274,7 +274,19 @@ pub fn mini_metric_chip(
     pct: f32,
     color: Color32,
 ) -> Response {
-    let desired_size = Vec2::new(126.0, 24.0);
+    mini_metric_chip_width(ui, label, val_str, pct, color, 126.0)
+}
+
+/// Renders a compact chip for system resource status (CPU/RAM/Disk) with an explicit width.
+pub fn mini_metric_chip_width(
+    ui: &mut Ui,
+    label: &str,
+    val_str: &str,
+    pct: f32,
+    color: Color32,
+    width: f32,
+) -> Response {
+    let desired_size = Vec2::new(width, 24.0);
     let (rect, resp) = ui.allocate_exact_size(desired_size, Sense::hover());
     if !ui.is_rect_visible(rect) {
         return resp;

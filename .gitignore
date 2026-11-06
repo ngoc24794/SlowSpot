@@ -1,6 +1,7 @@
 # Rust / build
 target/
 dist/
+screenshots/
 Cargo.lock.bak
 **/*.rs.bk
 *.pdb

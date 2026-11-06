@@ -107,7 +107,7 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
     - Ranh giới thanh bar và số liệu hoàn toàn tách rời, triệt tiêu triệt để hiện tượng vạch bar vẽ đè/che khuất các ký tự đầu tiên của số liệu với mọi giá trị lên đến `999.9 MB/s` và `100%`.
 
 ### 5.2. Khu Vực Trạng Thái & Thẻ Thủ Phạm Chính (Status Area & Hero Card)
-- **Slot Cố Định Bất Biến (`STATUS_SLOT_HEIGHT = 104px`)**: Chiều cao khu vực trạng thái là một hằng số cố định tuyệt đối, nâng từ 64px lên 104px để hiển thị đầy đủ thẻ thủ phạm/đáng ngờ với 4 dòng hoàn chỉnh: tiêu đề, thông tin tiến trình, hàng 4 nút hành động, và dòng ghi chú an toàn. Thiết kế này bảo đảm mọi nút bấm luôn hiển thị trọn vẹn và bấm được ở cả trạng thái Đáng ngờ (Suspicious) và Thủ phạm (Culprit) tại cả 1000x680 và 760x520 mà không bao giờ bị cắt xén (clip). Các khối thành phần bên dưới (Biểu đồ Sparklines và Bảng tiến trình) không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi (Zero Cumulative Layout Shift).
+- **Slot Cố Định Bất Biến (`STATUS_SLOT_HEIGHT = 100px`)**: Chiều cao khu vực trạng thái là một hằng số cố định tuyệt đối 100px để hiển thị đầy đủ thẻ thủ phạm/đáng ngờ với 4 dòng hoàn chỉnh: tiêu đề, thông tin tiến trình, hàng 4 nút hành động, và dòng ghi chú an toàn. Thiết kế này bảo đảm mọi nút bấm luôn hiển thị trọn vẹn và bấm được ở cả trạng thái Đáng ngờ (Suspicious) và Thủ phạm (Culprit) tại cả 1000x680 và 760x520 mà không bao giờ bị cắt xén (clip). Các khối thành phần bên dưới (Biểu đồ Sparklines và Bảng tiến trình) không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi (Zero Cumulative Layout Shift).
 - **Khi có thủ phạm hoặc tiến trình đáng ngờ**:
   - Khung viền (Border), màu nền (Background), tiêu đề (Title), màu điểm số và huy hiệu cấp độ tuân thủ nghiêm ngặt theo cấp độ nghiêm trọng:
     - **Mức Đáng ngờ (Suspicious - điểm 40–69)**: Viền màu vàng hổ phách `#F59E0B` (`COLOR_WARNING`), nền tối ánh hổ phách `#281808` (`COLOR_BG_CARD_SUSPICIOUS`), tiêu đề `ĐÁNG NGỜ` màu hổ phách, điểm số hiển thị màu hổ phách, huy hiệu cấp độ hình tam giác cảnh báo ▲ + nhãn `Đáng ngờ`.
@@ -196,11 +196,11 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 
 Giao diện áp dụng cơ chế phân bổ vị trí dọc nghiêm ngặt:
 1. **Header Banner**: Tên ứng dụng, Huy hiệu trạng thái, Nút Tạm dừng, Mini Chips tài nguyên.
-2. **Đang theo dõi (Watched Panel)**: Slot cố định 50px (`WATCHED_SLOT_HEIGHT`).
-3. **Khu vực Trạng thái / Thẻ thủ phạm (Status Area)**: Slot cố định 104px (`STATUS_SLOT_HEIGHT`).
-4. **Biểu đồ Sparklines**: Chiều cao 50px cố định cho 3 tài nguyên (CPU, RAM, Đĩa).
-5. **Bảng tiến trình (Process Table)**: Chiếm toàn bộ phần chiều cao còn lại.
-6. **Thanh trạng thái đáy (Bottom Status Bar)**: Cố định bằng `Panel::bottom`.
+2. **Đang theo dõi (Watched Panel)**: Slot cố định 62px (`WATCHED_SLOT_HEIGHT`).
+3. **Khu vực Trạng thái / Thẻ thủ phạm (Status Area)**: Slot cố định 100px (`STATUS_SLOT_HEIGHT`).
+4. **Biểu đồ Sparklines**: Chiều cao 72px cố định cho 3 tài nguyên (CPU, RAM, Đĩa) với header band, footer band và vùng vẽ đồ thị riêng biệt không cắt chữ.
+5. **Bảng tiến trình (Process Table)**: Chiếm toàn bộ phần chiều cao còn lại (đáp ứng tối thiểu >= 8 hàng ở 1000x680 và >= 4 hàng ở 760x520).
+6. **Thanh trạng thái đáy (Bottom Status Bar)**: Cố định bằng `Panel::bottom` với cơ chế co gọn phím tắt chống đè chữ.
 
 Nhờ cơ chế slot cố định bất biến cho cả 2 khối Đang theo dõi và Thẻ trạng thái, các khối Biểu đồ và Bảng tiến trình **tuyệt đối không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi** (không bị đẩy lên hay hạ xuống).
 

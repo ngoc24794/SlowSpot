@@ -5,7 +5,9 @@
 
 pub mod actions;
 pub mod app;
+pub mod bmp;
 pub mod charts;
+pub mod layout_assert;
 pub mod palette;
 pub mod state;
 pub mod strings;

@@ -3,7 +3,9 @@
 //! Features translucent area shading, faint horizontal reference grids (25/50/75%),
 //! peak/current metric readouts, time axis captions, and hover inspection tooltips.
 
-use eframe::egui::{self, Color32, Pos2, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2};
+use eframe::egui::{
+    self, Color32, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
+};
 
 use crate::ui::palette::{
     COLOR_BORDER_SUBTLE, COLOR_FOREGROUND, COLOR_MUTED, COLOR_MUTED_FOREGROUND, FONT_SIZE_BODY,
@@ -43,10 +45,15 @@ pub fn calculate_sparkline_widths(available_width: f32, spacing: f32) -> [f32; 3
 }
 
 /// Paints an area sparkline graph using `egui::Painter`.
-pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Response {
+pub fn sparkline(
+    ui: &mut Ui,
+    cfg: SparklineConfig<'_>,
+    values: &[f32],
+) -> (Response, Rect, Vec<Rect>) {
     let (rect, mut response) = ui.allocate_exact_size(cfg.size, Sense::hover());
+    let mut text_rects = Vec::new();
     if !ui.is_rect_visible(rect) {
-        return response;
+        return (response, Rect::ZERO, text_rects);
     }
 
     let painter = ui.painter();
@@ -60,8 +67,8 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         StrokeKind::Inside,
     );
 
-    // 2. Header metrics
-    let header_y = rect.top() + 4.0;
+    // 2. Header Band: title left, current value right, peak under title
+    let header_y = rect.top() + 3.0;
 
     // Current value at top-right
     let current_font = egui::FontId::monospace(FONT_SIZE_BODY);
@@ -72,7 +79,9 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
     );
     let current_w = current_galley.size().x;
     let current_pos = Pos2::new(rect.right() - 8.0 - current_w, header_y);
+    let current_rect = Rect::from_min_size(current_pos, current_galley.size());
     painter.galley(current_pos, current_galley, COLOR_FOREGROUND);
+    text_rects.push(current_rect);
 
     // Title at top-left, dynamically constrained to prevent overlap with current readout
     let caption_font = egui::FontId::proportional(FONT_SIZE_CAPTION);
@@ -83,13 +92,12 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         COLOR_MUTED_FOREGROUND,
         max_title_w,
     );
-    painter.galley(
-        Pos2::new(rect.left() + 8.0, header_y),
-        title_galley,
-        COLOR_MUTED_FOREGROUND,
-    );
+    let title_pos = Pos2::new(rect.left() + 8.0, header_y);
+    let title_rect = Rect::from_min_size(title_pos, title_galley.size());
+    painter.galley(title_pos, title_galley, COLOR_MUTED_FOREGROUND);
+    text_rects.push(title_rect);
 
-    // Peak metric on its own line right under the title (Defect 2: no overlap at any width >= 760)
+    // Peak metric on its own line right under the title
     let peak_val = values.iter().fold(0.0f32, |acc, &v| acc.max(v));
     let peak_str = format!(
         "{} {:.1}{}",
@@ -97,22 +105,62 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         peak_val,
         cfg.unit
     );
-    let peak_y = header_y + 13.0;
-    let max_peak_w = (rect.width() - 16.0).max(10.0);
-    let peak_galley = painter.layout(peak_str, caption_font, COLOR_MUTED_FOREGROUND, max_peak_w);
-    painter.galley(
-        Pos2::new(rect.left() + 8.0, peak_y),
-        peak_galley,
+    let peak_y = header_y + title_rect.height() + 0.5;
+    let max_peak_w = (current_pos.x - (rect.left() + 8.0) - 6.0).max(10.0);
+    let peak_galley = painter.layout(
+        peak_str,
+        caption_font.clone(),
+        COLOR_MUTED_FOREGROUND,
+        max_peak_w,
+    );
+    let peak_pos = Pos2::new(rect.left() + 8.0, peak_y);
+    let peak_rect = Rect::from_min_size(peak_pos, peak_galley.size());
+    painter.galley(peak_pos, peak_galley, COLOR_MUTED_FOREGROUND);
+    text_rects.push(peak_rect);
+
+    let header_bottom = peak_rect
+        .max
+        .y
+        .max(title_rect.max.y)
+        .max(current_rect.max.y);
+
+    // 3. Footer Band: '-60s' left, 'nay' right
+    let start_galley = painter.layout_no_wrap(
+        strings::SPARKLINE_TIME_START.to_string(),
+        caption_font.clone(),
         COLOR_MUTED_FOREGROUND,
     );
+    let now_galley = painter.layout_no_wrap(
+        strings::SPARKLINE_TIME_NOW.to_string(),
+        caption_font.clone(),
+        COLOR_MUTED_FOREGROUND,
+    );
+    let footer_h = start_galley.size().y.max(now_galley.size().y);
+    let footer_bottom = rect.bottom() - 3.0;
+    let footer_top = footer_bottom - footer_h;
 
-    // 3. Graph Plot Area
-    let graph_top = rect.top() + 29.0;
-    let graph_bottom = rect.bottom() - 13.0;
+    let start_pos = Pos2::new(rect.left() + 8.0, footer_top);
+    let start_rect = Rect::from_min_size(start_pos, start_galley.size());
+    painter.galley(start_pos, start_galley, COLOR_MUTED_FOREGROUND);
+    text_rects.push(start_rect);
+
+    let now_pos = Pos2::new(rect.right() - 8.0 - now_galley.size().x, footer_top);
+    let now_rect = Rect::from_min_size(now_pos, now_galley.size());
+    painter.galley(now_pos, now_galley, COLOR_MUTED_FOREGROUND);
+    text_rects.push(now_rect);
+
+    // 4. Graph Plot Area: strictly between header_bottom and footer_top with >= 2.0px padding
+    let plot_padding = 2.0;
+    let graph_top = header_bottom + plot_padding;
+    let graph_bottom = footer_top - plot_padding;
     let graph_left = rect.left() + 8.0;
     let graph_right = rect.right() - 8.0;
+    let plot_rect = Rect::from_min_max(
+        Pos2::new(graph_left, graph_top),
+        Pos2::new(graph_right, graph_bottom),
+    );
 
-    let graph_height = (graph_bottom - graph_top).max(10.0);
+    let graph_height = (graph_bottom - graph_top).max(5.0);
     let graph_width = (graph_right - graph_left).max(10.0);
 
     // Faint horizontal reference grid lines (25%, 50%, 75%)
@@ -132,23 +180,6 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
             Pos2::new(graph_right, graph_bottom),
         ],
         Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 16)),
-    );
-
-    // 4. Time axis captions ("-60s" … "nay") (>= 12px caption, solid high-contrast muted foreground)
-    let time_y = rect.bottom() - 2.0;
-    painter.text(
-        Pos2::new(graph_left, time_y),
-        egui::Align2::LEFT_BOTTOM,
-        strings::SPARKLINE_TIME_START,
-        egui::FontId::proportional(FONT_SIZE_CAPTION),
-        COLOR_MUTED_FOREGROUND,
-    );
-    painter.text(
-        Pos2::new(graph_right, time_y),
-        egui::Align2::RIGHT_BOTTOM,
-        strings::SPARKLINE_TIME_NOW,
-        egui::FontId::proportional(FONT_SIZE_CAPTION),
-        COLOR_MUTED_FOREGROUND,
     );
 
     // 5. Data Points, Area Shading, and Line
@@ -201,8 +232,8 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         // 6. Hover inspection tooltip
         if response.hovered() {
             if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                if mouse_pos.x >= graph_left && mouse_pos.x <= graph_right {
-                    let rel_x = (mouse_pos.x - graph_left) / graph_width;
+                if plot_rect.contains(mouse_pos) {
+                    let rel_x = ((mouse_pos.x - graph_left) / graph_width).clamp(0.0, 1.0);
                     let idx = ((rel_x * (n - 1) as f32).round() as usize).clamp(0, n - 1);
                     let target_pt = points[idx];
                     let val = values[idx];
@@ -234,7 +265,7 @@ pub fn sparkline(ui: &mut Ui, cfg: SparklineConfig<'_>, values: &[f32]) -> Respo
         }
     }
 
-    response
+    (response, plot_rect, text_rects)
 }
 
 #[cfg(test)]
@@ -294,7 +325,16 @@ mod tests {
                     size: Vec2::new(card_w, 68.0),
                 };
                 let values = [100.0, 500.0, 997.5];
-                sparkline(ui, cfg, &values);
+                let (_resp, plot_rect, text_rects) = sparkline(ui, cfg, &values);
+                for tr in &text_rects {
+                    let inter = plot_rect.intersect(*tr);
+                    assert!(
+                        !inter.is_positive() || inter.width() <= 0.0 || inter.height() <= 0.0,
+                        "Plot rect {:?} must not intersect text rect {:?}",
+                        plot_rect,
+                        tr
+                    );
+                }
             });
 
             // Inspect text galleys to verify title and peak Y positions do not collide
