@@ -2,6 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày tạo | Tác giả |
 | :--- | :--- | :--- | :--- |
+| 2.4.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 5 (Task polish5) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.3.1 | Hoàn thiện Ổn định Bố cục Dọc & Slot Cố định (Task polish3 Addendum) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.3.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 4 (Task polish3) | 06/11/2026 | SlowSpot UI/UX Design & Engineering Team |
 | 2.2.0 | Hoàn thiện Khắc phục Lỗi UI/UX Vòng 3 (Task uiux3) | 05/11/2026 | SlowSpot UI/UX Design & Engineering Team |
@@ -108,13 +109,13 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
 
 ### 5.2. Khu Vực Trạng Thái & Thẻ Thủ Phạm Chính (Status Area & Hero Card)
 - **Slot Cố Định Bất Biến (`STATUS_SLOT_HEIGHT = 100px`)**: Chiều cao khu vực trạng thái là một hằng số cố định tuyệt đối 100px để hiển thị đầy đủ thẻ thủ phạm/đáng ngờ với 4 dòng hoàn chỉnh: tiêu đề, thông tin tiến trình, hàng 4 nút hành động, và dòng ghi chú an toàn. Thiết kế này bảo đảm mọi nút bấm luôn hiển thị trọn vẹn và bấm được ở cả trạng thái Đáng ngờ (Suspicious) và Thủ phạm (Culprit) tại cả 1000x680 và 760x520 mà không bao giờ bị cắt xén (clip). Các khối thành phần bên dưới (Biểu đồ Sparklines và Bảng tiến trình) không bao giờ bị xê dịch khi trạng thái hệ thống thay đổi (Zero Cumulative Layout Shift).
-- **Khi có thủ phạm hoặc tiến trình đáng ngờ**:
+- **Khi có thủ phạm hoặc tiến trình đáng ngờ (Khắc phục lỗi E1 - Polish 5)**:
   - Khung viền (Border), màu nền (Background), tiêu đề (Title), màu điểm số và huy hiệu cấp độ tuân thủ nghiêm ngặt theo cấp độ nghiêm trọng:
     - **Mức Đáng ngờ (Suspicious - điểm 40–69)**: Viền màu vàng hổ phách `#F59E0B` (`COLOR_WARNING`), nền tối ánh hổ phách `#281808` (`COLOR_BG_CARD_SUSPICIOUS`), tiêu đề `ĐÁNG NGỜ` màu hổ phách, điểm số hiển thị màu hổ phách, huy hiệu cấp độ hình tam giác cảnh báo ▲ + nhãn `Đáng ngờ`.
     - **Mức Thủ phạm (Culprit - điểm >= 70)**: Viền màu đỏ `#EF4444` (`COLOR_DESTRUCTIVE`), nền tối ánh đỏ thẫm `#261014` (`COLOR_BG_CARD_CULPRIT`), tiêu đề `THỦ PHẠM CHÍNH` màu đỏ, điểm số hiển thị màu đỏ, huy hiệu cấp độ hình thoi nguy hiểm ◆ + nhãn `Thủ phạm`.
   - Luôn kết hợp biểu tượng hình học + nhãn văn bản (icon + text label) song hành cùng màu sắc để màu sắc không bao giờ là tín hiệu thị giác duy nhất (WCAG 1.4.1).
   - Tỷ lệ tương phản chữ trên nền tối màu luôn đạt >= 4.5:1.
-  - Bố cục 4 dòng tinh gọn vừa vặn hoàn hảo trong slot 104px:
+  - Bố cục 4 dòng tinh gọn vừa vặn hoàn hảo bên trong khung viền (bảo đảm cả 4 cạnh, góc bo tròn và dòng ghi chú an toàn đều nằm trọn vẹn trong slot với khoảng đệm đáy >= 8px):
     - **Dòng 1**: Tiêu đề thẻ, huy hiệu cấp độ, huy hiệu bảo vệ hệ thống và điểm số thủ phạm căn lề phải.
     - **Dòng 2**: Tên file thực thi (14px in đậm), PID, và lý giải nguyên nhân bằng tiếng Việt (`— chiếm 88% CPU`).
     - **Dòng 3 (Hàng 4 nút hành động đầy đủ)**:
@@ -122,12 +123,13 @@ Các cột số (PID, CPU %, RAM, Đĩa I/O, Điểm) được hiển thị vớ
       2. **Nút Nguy hiểm (Danger)**: `Bắt buộc tắt` (Tô nền đỏ khi đã qua 5s chờ đóng an toàn và tiến trình có thể tắt; khi chưa đủ điều kiện ở trạng thái vô hiệu hoá kèm tooltip).
       3. **Nút Phụ (Secondary)**: `Mở thư mục` và `Bỏ qua thủ phạm này` (Dạng viền tối giản).
     - **Dòng 4 (Ghi chú an toàn)**: Khi nút `Bắt buộc tắt` chưa khả dụng hoặc tiến trình được bảo vệ, hiển thị biểu tượng cảnh báo ⚠️ kèm thông điệp giải thích: `Tiến trình hệ thống bảo vệ`, `Chờ an toàn (Xs)` hoặc `Bắt buộc tắt sẽ khả dụng nếu ứng dụng không đóng sau 5 giây`. Tooltip chi tiết vẫn được hiển thị đầy đủ khi rà chuột.
-- **Khi không có thủ phạm duy nhất (No Single Culprit)**:
+- **Khi không có thủ phạm duy nhất (No Single Culprit - Khắc phục lỗi E2 - Polish 5)**:
   - **Trường hợp máy mượt mà (`PressureState::Smooth`)**:
-    - Biểu tượng dấu kiểm tra ✔ xanh lá (`COLOR_ACCENT_OK`), nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú `— Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.` Toàn bộ thông điệp được **căn giữa theo chiều dọc** trong slot 104px, tạo cảm giác thoáng đãng và bình yên.
+    - Biểu tượng dấu kiểm tra ✔ xanh lá (`COLOR_ACCENT_OK`), nhãn `Máy đang chạy mượt, không có thủ phạm` và phụ chú `— Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.`
+    - **Thích ứng kích thước hẹp (760x520)**: Đo đạc độ rộng thực tế của chuỗi văn bản so với không gian khả dụng. Ở màn hình rộng (1000x680), hiển thị 1 dòng căn giữa. Ở màn hình hẹp (760x520), tự động ngắt dòng thông điệp phụ xuống dòng thứ 2 (kèm cắt gọn dấu ba chấm `…` nếu không đủ chỗ), triệt tiêu hoàn toàn hiện tượng cắt cụt ký tự ở mép thẻ.
   - **Trường hợp hệ thống chịu tải cao hoặc quá tải (`PressureState::Strained` / `Overloaded`)**:
     - Đồng bộ cảnh báo màu vàng hổ phách (`COLOR_WARNING`) với biểu tượng tam giác cảnh báo ▲, tiêu đề `Hệ thống đang quá tải` (hoặc `Hệ thống đang chịu tải cao`) và phụ chú `— Chưa xác định được một thủ phạm rõ ràng, nhiều tiến trình cùng chiếm tài nguyên.`
-    - Nếu có nhóm tiến trình nổi bật, cung cấp thêm hàng nút `Lọc trong bảng` và `Bỏ qua nhóm này`. Toàn bộ nội dung được căn giữa theo chiều dọc trong cùng slot 104px.
+    - Tự động ngắt dòng thích ứng tương tự khi không gian hẹp, kèm hàng nút thao tác nhóm khi có nhóm tiến trình nổi bật. Toàn bộ nội dung được căn giữa theo chiều dọc trong cùng slot 100px.
 
 ### 5.3. Biểu đồ Sparkline Thời gian Thực (Real-time Sparklines)
 - Gồm 3 biểu đồ đồng thời theo dõi lịch sử 60 giây của **CPU**, **RAM** và **Tốc độ Đĩa I/O**.
@@ -254,10 +256,22 @@ Nhờ cơ chế slot cố định bất biến cho cả 2 khối Đang theo dõi
     - `Đã hồi phục` (Circle ● xanh lá): Đã qua giai đoạn làm mát an toàn.
     - `Đã thoát` (Diamond ◆ xám): Tiến trình đã dừng hoạt động.
   - Tên tiến trình, PID (hoặc nhãn `rustc.exe ×3` nếu là nhóm tiến trình).
-  - Thời gian: "Từ HH:MM:SS (đã MM:SS)".
-  - Thống kê đỉnh điểm: "Đỉnh CPU: 88.0% • RAM: 1.2 GB • Đĩa: 45.0 MB/s".
-  - Mini Sparkline: Biểu đồ xu hướng điểm số/tỷ trọng trong đợt quá tải.
+  - **Thang ưu tiên hiển thị thích ứng chống đè nút (Priority Ladder - Khắc phục lỗi E3 - Polish 5)**:
+    - Khi chiều ngang hạn hẹp (ví dụ kích thước 760x520), các thông số được đo lường chính xác bằng `layout_no_wrap` và con trỏ thực tế `ui.cursor().min.x` so với mép trái nút hành động (bảo lưu khoảng đệm an toàn $\ge 8\text{px}$). Các thành phần bên trái tự động thu gọn theo thứ tự ưu tiên:
+      1. **Bỏ mini sparkline đầu tiên**: Mini sparkline (48px) được ẩn đi trước hết.
+      2. **Bỏ đỉnh RAM và Đĩa**: Chỉ giữ lại chỉ số đỉnh quan trọng nhất là CPU (`Đỉnh CPU: 88.0%`).
+      3. **Rút gọn thời gian**: Rút ngắn từ chuỗi đầy đủ `Từ HH:MM:SS (đã MM:SS)` thành dạng ngắn `đã MM:SS`.
+      4. **Bỏ toàn bộ thống kê đỉnh**: Chỉ hiển thị chuỗi thời gian rút gọn.
+      5. **Ẩn thời gian**: Khi bề ngang cực kỳ hạn hẹp, chỉ giữ lại Huy hiệu trạng thái + Tên tiến trình (PID) để bảo đảm tuyệt đối không bao giờ đè lên nút hành động.
   - Nút hành động nhanh: Tuân thủ an toàn 2 cấp độ ("Đóng an toàn" hoặc "Bắt buộc tắt"). Đối với nhóm tiến trình, cung cấp nút "Xem trong bảng" để can thiệp từng tiến trình riêng rẽ.
+
+### 9.2. Khẳng Định Bố Cục Tự Động (Layout Assertions - Khắc phục lỗi E4 - Polish 5)
+- Hệ thống duy trì bộ kiểm thử tự động `src/ui/layout_assert.rs` đo vẽ trực tiếp bằng các toạ độ hình chữ nhật `Rect` thực tế đã render trên mọi giai đoạn (Calm, Suspicious, Culprit, Cooling) ở cả 2 độ phân giải 1000x680 và 760x520:
+  - Khung thẻ trạng thái nằm trọn vẹn bên trong slot, dòng ghi chú an toàn và các nút bấm có đệm đáy $\ge 8\text{px}$ (E1).
+  - Không có hiện tượng tràn khung hay cắt cụt văn bản (E2).
+  - Không có bất kỳ phần tử văn bản hay sparkline nào giao cắt với nút hành động trong hàng theo dõi, luôn cách nút tối thiểu $\ge 8\text{px}$ (E3).
+  - Chiều cao slot trạng thái bất biến qua mọi giai đoạn (E4).
+  - Số hàng tiến trình nhìn thấy trong bảng đạt $\ge 8$ hàng ở 1000x680 và $\ge 4$ hàng ở 760x520.
 
 ### 9.2. Huy hiệu Áp lực Hệ thống & Tooltip Chi tiết
 - **Huy hiệu Header**: Minh bạch tài nguyên bị quá tải: "Quá tải CPU", "Quá tải RAM", "Quá tải đĩa" hoặc kết hợp "Quá tải CPU + RAM".

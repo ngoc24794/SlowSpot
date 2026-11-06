@@ -190,7 +190,11 @@ impl SlowSpotApp {
             header_elements: Vec::new(),
             watched_slot_rect: egui::Rect::ZERO,
             watched_row_rect: None,
+            watched_text_rects: Vec::new(),
+            watched_button_rect: None,
             status_slot_rect: egui::Rect::ZERO,
+            status_frame_rect: egui::Rect::ZERO,
+            status_note_rect: None,
             action_buttons: Vec::new(),
             charts_rect: egui::Rect::ZERO,
             chart_plots: Vec::new(),
@@ -650,11 +654,12 @@ impl SlowSpotApp {
         );
         slot_ui.set_clip_rect(slot_clip);
 
-        card_frame.show(&mut slot_ui, |ui| {
+        let card_resp = card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(STATUS_SLOT_HEIGHT - 16.0);
-            ui.set_max_height(STATUS_SLOT_HEIGHT - 16.0);
-            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.set_min_height(STATUS_SLOT_HEIGHT - 18.0);
+            ui.set_max_height(STATUS_SLOT_HEIGHT - 18.0);
+            ui.spacing_mut().interact_size.y = 16.0;
+            ui.spacing_mut().item_spacing.y = 1.0;
             match banner_state {
                 HeroBannerState::Culprit(target) => {
                     let tokens = level_tokens(target.severity);
@@ -694,8 +699,6 @@ impl SlowSpotApp {
                         });
                     });
 
-                    ui.add_space(1.0);
-
                     // Row 2: Culprit Process Name & Bottleneck Explanation
                     ui.horizontal(|ui| {
                         ui.label(
@@ -718,13 +721,13 @@ impl SlowSpotApp {
                         );
                     });
 
-                    ui.add_space(2.0);
-
                     // Row 3: Compact single row of actions with shorter note
                     let can_kill = self.state.can_force_kill(pid, now);
                     let wait_rem = self.state.graceful_wait_remaining_secs(pid, now);
 
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().button_padding = Vec2::new(6.0, 1.0);
+                        ui.spacing_mut().interact_size.y = 18.0;
                         // 1. Primary Button: Graceful Close ("Đóng an toàn")
                         let (close_fill, close_color, close_stroke) = if killable {
                             (COLOR_INFO, COLOR_BG, Stroke::NONE)
@@ -876,8 +879,7 @@ impl SlowSpotApp {
 
                     // Row 4: Status note explaining when force-kill is available or system protection
                     if !can_kill || !killable {
-                        ui.add_space(3.0);
-                        ui.horizontal(|ui| {
+                        let note_resp = ui.horizontal(|ui| {
                             let note_text = if !killable {
                                 strings::TOOLTIP_SYSTEM_PROTECTED
                             } else if let Some(s) = wait_rem {
@@ -898,6 +900,9 @@ impl SlowSpotApp {
                                     .size(FONT_SIZE_CAPTION),
                             );
                         });
+                        if let Some(l) = &mut self.current_layout {
+                            l.status_note_rect = Some(note_resp.response.rect);
+                        }
                     }
                 }
                 HeroBannerState::HighPressureNoCulprit {
@@ -906,29 +911,92 @@ impl SlowSpotApp {
                     group_culprit_name,
                     color,
                 } => {
-                    let content_h = if group_culprit_name.is_some() {
-                        50.0
-                    } else {
-                        24.0
-                    };
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 16.0 - content_h) / 2.0).max(0.0);
-                    ui.add_space(pad_top);
+                    let title_font = egui::FontId::proportional(FONT_SIZE_SUBHEADING);
+                    let subtitle_font = egui::FontId::proportional(FONT_SIZE_CAPTION);
+                    let title_w = ui
+                        .painter()
+                        .layout_no_wrap(title.clone(), title_font, color)
+                        .size()
+                        .x;
+                    let subtitle_w = ui
+                        .painter()
+                        .layout_no_wrap(
+                            format!("— {subtitle}"),
+                            subtitle_font,
+                            COLOR_MUTED_FOREGROUND,
+                        )
+                        .size()
+                        .x;
+                    let needed_w = 20.0 + title_w + 8.0 + subtitle_w;
 
-                    ui.horizontal(|ui| {
-                        widgets::draw_warning_icon(ui, color, 16.0);
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(title)
-                                .color(color)
-                                .size(FONT_SIZE_SUBHEADING)
-                                .strong(),
-                        );
-                        ui.label(
-                            RichText::new(format!("— {subtitle}"))
-                                .color(COLOR_MUTED_FOREGROUND)
-                                .size(FONT_SIZE_CAPTION),
-                        );
-                    });
+                    if group_culprit_name.is_some() {
+                        let pad_top = ((STATUS_SLOT_HEIGHT - 18.0 - 50.0) / 2.0).max(0.0);
+                        ui.add_space(pad_top);
+
+                        ui.horizontal(|ui| {
+                            widgets::draw_warning_icon(ui, color, 16.0);
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(&title)
+                                    .color(color)
+                                    .size(FONT_SIZE_SUBHEADING)
+                                    .strong(),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("— {subtitle}"))
+                                        .color(COLOR_MUTED_FOREGROUND)
+                                        .size(FONT_SIZE_CAPTION),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    } else if ui.available_width() >= needed_w {
+                        let pad_top = ((STATUS_SLOT_HEIGHT - 18.0 - 24.0) / 2.0).max(0.0);
+                        ui.add_space(pad_top);
+
+                        ui.horizontal(|ui| {
+                            widgets::draw_warning_icon(ui, color, 16.0);
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(&title)
+                                    .color(color)
+                                    .size(FONT_SIZE_SUBHEADING)
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(format!("— {subtitle}"))
+                                    .color(COLOR_MUTED_FOREGROUND)
+                                    .size(FONT_SIZE_CAPTION),
+                            );
+                        });
+                    } else {
+                        let pad_top = ((STATUS_SLOT_HEIGHT - 18.0 - 42.0) / 2.0).max(0.0);
+                        ui.add_space(pad_top);
+
+                        ui.horizontal(|ui| {
+                            widgets::draw_warning_icon(ui, color, 16.0);
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(&title)
+                                    .color(color)
+                                    .size(FONT_SIZE_SUBHEADING)
+                                    .strong(),
+                            );
+                        });
+                        ui.add_space(3.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&subtitle)
+                                        .color(COLOR_MUTED_FOREGROUND)
+                                        .size(FONT_SIZE_CAPTION),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    }
 
                     if let Some(ref group_name) = group_culprit_name {
                         ui.add_space(2.0);
@@ -974,27 +1042,77 @@ impl SlowSpotApp {
                     subtitle,
                     color,
                 } => {
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 16.0 - 24.0) / 2.0).max(0.0);
-                    ui.add_space(pad_top);
+                    let title_font = egui::FontId::proportional(FONT_SIZE_SUBHEADING);
+                    let subtitle_font = egui::FontId::proportional(FONT_SIZE_CAPTION);
+                    let title_w = ui
+                        .painter()
+                        .layout_no_wrap(title.to_string(), title_font, color)
+                        .size()
+                        .x;
+                    let subtitle_w = ui
+                        .painter()
+                        .layout_no_wrap(
+                            format!("— {subtitle}"),
+                            subtitle_font,
+                            COLOR_MUTED_FOREGROUND,
+                        )
+                        .size()
+                        .x;
+                    let needed_w = 20.0 + title_w + 8.0 + subtitle_w;
 
-                    ui.horizontal(|ui| {
-                        widgets::draw_checkmark(ui, color, 16.0);
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(title)
-                                .color(color)
-                                .size(FONT_SIZE_SUBHEADING)
-                                .strong(),
-                        );
-                        ui.label(
-                            RichText::new(format!("— {subtitle}"))
-                                .color(COLOR_MUTED_FOREGROUND)
-                                .size(FONT_SIZE_CAPTION),
-                        );
-                    });
+                    if ui.available_width() >= needed_w {
+                        let pad_top = ((STATUS_SLOT_HEIGHT - 18.0 - 24.0) / 2.0).max(0.0);
+                        ui.add_space(pad_top);
+
+                        ui.horizontal(|ui| {
+                            widgets::draw_checkmark(ui, color, 16.0);
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(title)
+                                    .color(color)
+                                    .size(FONT_SIZE_SUBHEADING)
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(format!("— {subtitle}"))
+                                    .color(COLOR_MUTED_FOREGROUND)
+                                    .size(FONT_SIZE_CAPTION),
+                            );
+                        });
+                    } else {
+                        // Wrap to second line for narrow viewports (e.g. 760x520) with ellipsize fallback
+                        let pad_top = ((STATUS_SLOT_HEIGHT - 18.0 - 42.0) / 2.0).max(0.0);
+                        ui.add_space(pad_top);
+
+                        ui.horizontal(|ui| {
+                            widgets::draw_checkmark(ui, color, 16.0);
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(title)
+                                    .color(color)
+                                    .size(FONT_SIZE_SUBHEADING)
+                                    .strong(),
+                            );
+                        });
+                        ui.add_space(3.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(subtitle)
+                                        .color(COLOR_MUTED_FOREGROUND)
+                                        .size(FONT_SIZE_CAPTION),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    }
                 }
             }
         });
+        if let Some(l) = &mut self.current_layout {
+            l.status_frame_rect = card_resp.response.rect;
+        }
     }
 
     /// Renders 60-second resource sparklines with area shading and hover inspection.
@@ -1183,25 +1301,66 @@ impl SlowSpotApp {
             .map(|s| s.timestamp_ms)
             .unwrap_or(0);
         let retention_secs = if self.demo { 20 } else { 120 };
+
+        let active_proc = self
+            .state
+            .latest_snapshot
+            .as_ref()
+            .and_then(|s| s.processes.iter().find(|p| p.record.pid == ep.pid).cloned());
+
+        // 1. Measure the right-aligned action button to know available space for left-aligned content (E3)
+        let btn_text = if ep.is_group() {
+            "Xem trong bảng".to_string()
+        } else if let Some(ref target) = active_proc {
+            if !target.killable {
+                strings::BTN_GRACEFUL_CLOSE.to_string()
+            } else if self.state.can_force_kill(target.record.pid, now) {
+                strings::BTN_FORCE_KILL.to_string()
+            } else if let Some(s) = self
+                .state
+                .graceful_wait_remaining_secs(target.record.pid, now)
+            {
+                format!("{} ({}s)", strings::BTN_FORCE_KILL, s)
+            } else {
+                strings::BTN_GRACEFUL_CLOSE.to_string()
+            }
+        } else {
+            "—".to_string()
+        };
+
+        let cur_score = ep.score_history.last().copied().unwrap_or(ep.peak_score);
+
         let row_frame = egui::Frame::new()
             .fill(COLOR_BG)
             .corner_radius(RADIUS_SM)
             .inner_margin(Margin::symmetric(6, 2))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
+        let mut row_text_rects = Vec::new();
+        let mut row_btn_rect = None;
+
         let row_resp = row_frame.show(ui, |ui| {
             ui.set_height(20.0);
+
+            // Pre-calculate exact button width to ensure non-overlap and >= 8px gap
+            let btn_font = egui::FontId::proportional(FONT_SIZE_TINY);
+            let btn_galley =
+                ui.painter()
+                    .layout_no_wrap(btn_text.clone(), btn_font, COLOR_FOREGROUND);
+            let btn_w = (btn_galley.size().x + 24.0).max(96.0);
+            let max_allowed_x = ui.max_rect().right() - btn_w - 8.0;
+
             ui.horizontal(|ui| {
                 // Expand toggle for group episodes
                 if ep.is_group() {
                     let group_key = ep.name.to_lowercase();
                     let is_expanded = self.state.expanded_groups.contains(&group_key);
                     let toggle_sym = if is_expanded { "▼" } else { "▶" };
-                    if ui
+                    let btn = ui
                         .small_button(toggle_sym)
-                        .on_hover_text("Bấm để mở rộng / thu gọn danh sách PID")
-                        .clicked()
-                    {
+                        .on_hover_text("Bấm để mở rộng / thu gọn danh sách PID");
+                    row_text_rects.push(btn.rect);
+                    if btn.clicked() {
                         if is_expanded {
                             self.state.expanded_groups.remove(&group_key);
                         } else {
@@ -1211,7 +1370,6 @@ impl SlowSpotApp {
                 }
 
                 // 1. State badge with geometric icon and text
-                let cur_score = ep.score_history.last().copied().unwrap_or(ep.peak_score);
                 widgets::watched_state_badge(
                     ui,
                     ep.state,
@@ -1222,38 +1380,52 @@ impl SlowSpotApp {
 
                 // 2. Name & PID (or group count)
                 if ep.is_group() {
-                    ui.label(
+                    let r = ui.label(
                         RichText::new(format!("{} ×{}", ep.name, ep.process_count))
                             .color(COLOR_FOREGROUND)
                             .size(FONT_SIZE_BODY)
                             .strong(),
                     );
+                    row_text_rects.push(r.rect);
                 } else {
-                    ui.label(
+                    let r1 = ui.label(
                         RichText::new(&ep.name)
                             .color(COLOR_FOREGROUND)
                             .size(FONT_SIZE_BODY)
                             .strong(),
                     );
-                    ui.label(
+                    row_text_rects.push(r1.rect);
+                    let r2 = ui.label(
                         RichText::new(format!("({})", ep.pid))
                             .color(COLOR_MUTED_FOREGROUND)
                             .size(FONT_SIZE_CAPTION),
                     );
+                    row_text_rects.push(r2.rect);
                 }
 
-                ui.add_space(6.0);
+                // 3. Priority ladder for remaining space before button (Defect E3)
+                let current_x = ui.cursor().min.x;
+                let remaining_w = (max_allowed_x - current_x).max(0.0);
 
-                // 3. Time info: "Từ HH:MM:SS (đã MM:SS)"
-                ui.label(
-                    RichText::new(format_episode_time_str(ep))
-                        .color(COLOR_MUTED_FOREGROUND)
-                        .size(FONT_SIZE_CAPTION),
+                let caption_font = egui::FontId::proportional(FONT_SIZE_CAPTION);
+                let space_w = 6.0;
+
+                let full_time = format_episode_time_str(ep);
+                let short_time = format!(
+                    "đã {}",
+                    crate::ui::state::format_duration_mmss(ep.overloaded_seconds)
                 );
+                let full_time_w = space_w
+                    + ui.painter()
+                        .layout_no_wrap(full_time.clone(), caption_font.clone(), COLOR_FOREGROUND)
+                        .size()
+                        .x;
+                let short_time_w = space_w
+                    + ui.painter()
+                        .layout_no_wrap(short_time.clone(), caption_font.clone(), COLOR_FOREGROUND)
+                        .size()
+                        .x;
 
-                ui.add_space(6.0);
-
-                // 4. Peak stats: CPU / RAM / Disk (show only non-zero peaks labeled 'Đỉnh')
                 let mut peaks = Vec::new();
                 if ep.peak_cpu > 0.05 {
                     peaks.push(format!("CPU: {}", format_percent(ep.peak_cpu)));
@@ -1264,21 +1436,103 @@ impl SlowSpotApp {
                 if ep.peak_disk_bps > 0.05 {
                     peaks.push(format!("Đĩa: {}", format_bps(ep.peak_disk_bps)));
                 }
+                let full_peaks_str = if !peaks.is_empty() {
+                    format!("Đỉnh {}", peaks.join(" • "))
+                } else {
+                    String::new()
+                };
+                let cpu_peak_str = if ep.peak_cpu > 0.05 {
+                    format!("Đỉnh CPU: {}", format_percent(ep.peak_cpu))
+                } else {
+                    String::new()
+                };
+                let full_peaks_w = if full_peaks_str.is_empty() {
+                    0.0
+                } else {
+                    space_w
+                        + ui.painter()
+                            .layout_no_wrap(
+                                full_peaks_str.clone(),
+                                caption_font.clone(),
+                                COLOR_FOREGROUND,
+                            )
+                            .size()
+                            .x
+                };
+                let cpu_peak_w = if cpu_peak_str.is_empty() {
+                    0.0
+                } else {
+                    space_w
+                        + ui.painter()
+                            .layout_no_wrap(
+                                cpu_peak_str.clone(),
+                                caption_font.clone(),
+                                COLOR_FOREGROUND,
+                            )
+                            .size()
+                            .x
+                };
 
-                if !peaks.is_empty() {
-                    let peak_str = format!("Đỉnh {}", peaks.join(" • "));
-                    ui.label(
-                        RichText::new(peak_str)
+                let sparkline_w = 4.0 + 48.0;
+
+                let has_peaks = !full_peaks_str.is_empty();
+                let has_cpu = !cpu_peak_str.is_empty();
+
+                // Priority ladder (Defect E3):
+                // 1. Drop the sparkline first
+                // 2. Then drop the RAM/disk peaks (keep CPU peak)
+                // 3. Then shorten 'Từ hh:mm:ss (đã mm:ss)' to 'đã mm:ss'
+                // 4. Then drop all peaks
+                // 5. Short time only / none
+                let (display_time, display_peaks, show_sparkline) =
+                    if has_peaks && remaining_w >= full_time_w + full_peaks_w + sparkline_w {
+                        (Some(full_time), Some(full_peaks_str), true)
+                    } else if !has_peaks && remaining_w >= full_time_w + sparkline_w {
+                        (Some(full_time), None, true)
+                    } else if has_peaks && remaining_w >= full_time_w + full_peaks_w {
+                        (Some(full_time), Some(full_peaks_str), false)
+                    } else if has_cpu && remaining_w >= full_time_w + cpu_peak_w {
+                        (Some(full_time), Some(cpu_peak_str), false)
+                    } else if has_cpu && remaining_w >= short_time_w + cpu_peak_w {
+                        (Some(short_time), Some(cpu_peak_str), false)
+                    } else if remaining_w >= short_time_w {
+                        (Some(short_time), None, false)
+                    } else {
+                        (None, None, false)
+                    };
+
+                // 4. Time info (if visible)
+                if let Some(ref t_str) = display_time {
+                    ui.add_space(6.0);
+                    let r = ui.label(
+                        RichText::new(t_str)
                             .color(COLOR_MUTED_FOREGROUND)
                             .size(FONT_SIZE_CAPTION),
                     );
+                    row_text_rects.push(r.rect);
                 }
 
-                // 5. Mini sparkline of score history
-                ui.add_space(4.0);
-                widgets::mini_sparkline(ui, &ep.score_history, 48.0, 16.0);
+                // 5. Peak stats (if visible)
+                if let Some(ref p_str) = display_peaks {
+                    if !p_str.is_empty() {
+                        ui.add_space(6.0);
+                        let r = ui.label(
+                            RichText::new(p_str)
+                                .color(COLOR_MUTED_FOREGROUND)
+                                .size(FONT_SIZE_CAPTION),
+                        );
+                        row_text_rects.push(r.rect);
+                    }
+                }
 
-                // 6. Action button (right-aligned) respecting two-tier safety & per-process closing
+                // 6. Mini sparkline of score history (if visible)
+                if show_sparkline {
+                    ui.add_space(4.0);
+                    let sp_rect = widgets::mini_sparkline(ui, &ep.score_history, 48.0, 16.0);
+                    row_text_rects.push(sp_rect);
+                }
+
+                // 7. Action button (right-aligned) respecting two-tier safety & per-process closing
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ep.is_group() {
                         let filter_btn = egui::Button::new(
@@ -1288,7 +1542,8 @@ impl SlowSpotApp {
                         )
                         .fill(COLOR_CARD)
                         .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
-                        let resp = ui.add(filter_btn);
+                        let resp = ui.add_sized(Vec2::new(btn_w, 20.0), filter_btn);
+                        row_btn_rect = Some(resp.rect);
                         if resp
                             .on_hover_text("Can thiệp từng tiến trình trong bảng bên dưới")
                             .clicked()
@@ -1315,7 +1570,8 @@ impl SlowSpotApp {
                             )
                             .fill(COLOR_MUTED)
                             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
-                            let resp = ui.add_enabled(false, prot_btn);
+                            let resp = ui.add_sized(Vec2::new(btn_w, 20.0), prot_btn);
+                            row_btn_rect = Some(resp.rect);
                             resp.on_hover_text(strings::TOOLTIP_SYSTEM_PROTECTED);
                         } else {
                             let can_kill = self.state.can_force_kill(pid, now);
@@ -1331,7 +1587,8 @@ impl SlowSpotApp {
                                 .fill(COLOR_DESTRUCTIVE)
                                 .stroke(Stroke::NONE);
 
-                                let resp = ui.add(kill_btn);
+                                let resp = ui.add_sized(Vec2::new(btn_w, 20.0), kill_btn);
+                                row_btn_rect = Some(resp.rect);
                                 if resp.hovered() {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                 }
@@ -1346,7 +1603,8 @@ impl SlowSpotApp {
                                 )
                                 .fill(COLOR_MUTED)
                                 .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
-                                let resp = ui.add_enabled(false, wait_btn);
+                                let resp = ui.add_sized(Vec2::new(btn_w, 20.0), wait_btn);
+                                row_btn_rect = Some(resp.rect);
                                 resp.on_hover_text(format!(
                                     "{} {s} {}",
                                     strings::TOOLTIP_WAIT_GRACEFUL_PREFIX,
@@ -1362,7 +1620,8 @@ impl SlowSpotApp {
                                 .fill(COLOR_INFO)
                                 .stroke(Stroke::NONE);
 
-                                let resp = ui.add(close_btn);
+                                let resp = ui.add_sized(Vec2::new(btn_w, 20.0), close_btn);
+                                row_btn_rect = Some(resp.rect);
                                 if resp.hovered() {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                 }
@@ -1389,11 +1648,15 @@ impl SlowSpotApp {
                             }
                         }
                     } else {
-                        ui.label(
-                            RichText::new("—")
-                                .color(COLOR_MUTED_FOREGROUND)
-                                .size(FONT_SIZE_CAPTION),
+                        let resp = ui.add_sized(
+                            Vec2::new(btn_w, 20.0),
+                            egui::Label::new(
+                                RichText::new("—")
+                                    .color(COLOR_MUTED_FOREGROUND)
+                                    .size(FONT_SIZE_CAPTION),
+                            ),
                         );
+                        row_btn_rect = Some(resp.rect);
                     }
                 });
             });
@@ -1443,6 +1706,8 @@ impl SlowSpotApp {
         if let Some(l) = &mut self.current_layout {
             if l.watched_row_rect.is_none() {
                 l.watched_row_rect = Some(row_resp.response.rect);
+                l.watched_text_rects = row_text_rects;
+                l.watched_button_rect = row_btn_rect;
             }
         }
     }
