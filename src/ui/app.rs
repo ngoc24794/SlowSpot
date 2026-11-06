@@ -15,11 +15,10 @@ use crate::model::{ActionCommand, Episode, PressureBreakdown, ScoredProcess, Sys
 use crate::ui::actions::ActionRunner;
 use crate::ui::charts::{self, SparklineConfig};
 use crate::ui::palette::{
-    evaluate_header_badge, level_tokens, PressureShape, COLOR_ACCENT_OK, COLOR_BG,
-    COLOR_BG_CARD_SMOOTH, COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE,
-    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING,
-    FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY,
-    RADIUS_LG, RADIUS_MD, RADIUS_SM,
+    evaluate_header_badge, level_tokens, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_SMOOTH,
+    COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_FOREGROUND, COLOR_INFO,
+    COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING, FONT_SIZE_BODY, FONT_SIZE_CAPTION,
+    FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY, RADIUS_LG, RADIUS_MD, RADIUS_SM,
 };
 use crate::ui::state::{
     format_bottleneck_explanation, format_bps, format_bytes, format_episode_time_str,
@@ -40,10 +39,10 @@ pub struct SlowSpotApp {
 }
 
 /// Fixed height of the "Đang theo dõi" (Watched) panel slot.
-pub const WATCHED_SLOT_HEIGHT: f32 = 64.0;
+pub const WATCHED_SLOT_HEIGHT: f32 = 50.0;
 
 /// Fixed height of the status area (Hero culprit card / smooth calm banner) slot.
-pub const STATUS_SLOT_HEIGHT: f32 = 64.0;
+pub const STATUS_SLOT_HEIGHT: f32 = 104.0;
 
 /// Active visual presentation state of the hero card.
 #[derive(Debug, Clone, PartialEq)]
@@ -289,13 +288,14 @@ impl SlowSpotApp {
             ui.set_width(ui.available_width());
             let card_rect = ui.available_rect_before_wrap();
 
+            let right_spacing = ui.spacing().item_spacing.x;
             // Right cluster layout budget (Pause button + 3 resource chips + item spacing)
             let right_cluster_w = if self.state.latest_snapshot.is_some() {
-                64.0 + 3.0 * 5.0 + 3.0 * 120.0
+                64.0 + 3.0 * 126.0 + 3.0 * right_spacing
             } else {
                 64.0
             };
-            let pill_area_left = card_rect.right() - right_cluster_w - 6.0;
+            let pill_area_left = card_rect.right() - right_cluster_w - 10.0;
 
             ui.horizontal(|ui| {
                 // 1. App Title
@@ -388,13 +388,11 @@ impl SlowSpotApp {
                     });
                 }
 
-                // 5. Cooldown notice if PC recovered from stress (strictly non-overlapping with right pills)
-                let active_watch = self.state.actively_watched_count();
-                let watched_badge_w = if active_watch > 0 { 86.0 } else { 0.0 };
-                let available_for_notice =
-                    (pill_area_left - ui.cursor().min.x - watched_badge_w - 6.0).max(0.0);
+                // 5. Cooldown notice if PC recovered from stress (strictly non-overlapping before right pills)
+                let current_x = ui.cursor().min.x;
+                let available_for_notice = (pill_area_left - current_x).max(0.0);
 
-                if self.state.is_cooldown_active(now) && available_for_notice >= 60.0 {
+                if self.state.is_cooldown_active(now) && available_for_notice >= 40.0 {
                     let notice_w = available_for_notice.min(220.0);
                     ui.allocate_ui_with_layout(
                         Vec2::new(notice_w, ui.available_height()),
@@ -402,7 +400,10 @@ impl SlowSpotApp {
                         |ui| {
                             ui.set_max_width(notice_w);
                             widgets::draw_checkmark(ui, COLOR_ACCENT_OK, 14.0);
-                            ui.add(
+                            ui.add_space(2.0);
+                            let text_w = (notice_w - 18.0).max(10.0);
+                            ui.add_sized(
+                                Vec2::new(text_w, ui.available_height()),
                                 egui::Label::new(
                                     RichText::new(strings::NOTICE_COOLDOWN)
                                         .color(COLOR_ACCENT_OK)
@@ -413,37 +414,6 @@ impl SlowSpotApp {
                             );
                         },
                     );
-                }
-
-                // 6. Watched process count badge (when active watch count > 0)
-                if active_watch > 0 && ui.cursor().min.x + watched_badge_w <= pill_area_left {
-                    let watch_frame = egui::Frame::new()
-                        .fill(COLOR_WARNING.gamma_multiply(0.2))
-                        .corner_radius(RADIUS_MD)
-                        .inner_margin(Margin::symmetric(8, 4))
-                        .stroke(Stroke::new(1.0, COLOR_WARNING.gamma_multiply(0.6)));
-
-                    watch_frame.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            widgets::draw_pressure_shape_indicator(
-                                ui,
-                                PressureShape::Circle,
-                                COLOR_WARNING,
-                                8.0,
-                            );
-                            ui.add_space(2.0);
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} {}",
-                                    strings::BADGE_WATCHING_HEADER_PREFIX,
-                                    active_watch
-                                ))
-                                .color(COLOR_WARNING)
-                                .size(FONT_SIZE_CAPTION)
-                                .strong(),
-                            );
-                        });
-                    });
                 }
 
                 // Push right-aligned controls: Pause button & Mini resource chips
@@ -562,7 +532,7 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(fill_color)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(10, 3))
+            .inner_margin(Margin::symmetric(10, 4))
             .stroke(Stroke::new(1.0, border_color));
 
         let (slot_rect, _) = ui.allocate_exact_size(
@@ -579,7 +549,8 @@ impl SlowSpotApp {
 
         card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(STATUS_SLOT_HEIGHT - 6.0);
+            ui.set_min_height(STATUS_SLOT_HEIGHT - 8.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
             match banner_state {
                 HeroBannerState::Culprit(target) => {
                     let tokens = level_tokens(target.severity);
@@ -786,16 +757,22 @@ impl SlowSpotApp {
                                 Duration::from_secs(4),
                             );
                         }
+                    });
 
-                        // Compact inline shorter note on the same action row
-                        if !can_kill || !killable {
-                            ui.add_space(4.0);
+                    // Row 4: Status note explaining when force-kill is available or system protection
+                    if !can_kill || !killable {
+                        ui.add_space(3.0);
+                        ui.horizontal(|ui| {
                             let note_text = if !killable {
-                                "Tiến trình hệ thống bảo vệ"
+                                strings::TOOLTIP_SYSTEM_PROTECTED
                             } else if let Some(s) = wait_rem {
-                                &format!("Chờ an toàn ({s}s)")
+                                &format!(
+                                    "{} {s} {}",
+                                    strings::TOOLTIP_WAIT_GRACEFUL_PREFIX,
+                                    strings::TOOLTIP_WAIT_GRACEFUL_SUFFIX
+                                )
                             } else {
-                                "Bật sau khi đóng an toàn"
+                                strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT
                             };
 
                             widgets::draw_warning_icon(ui, COLOR_MUTED_FOREGROUND, 11.0);
@@ -805,8 +782,8 @@ impl SlowSpotApp {
                                     .color(COLOR_MUTED_FOREGROUND)
                                     .size(FONT_SIZE_CAPTION),
                             );
-                        }
-                    });
+                        });
+                    }
                 }
                 HeroBannerState::HighPressureNoCulprit {
                     title,
@@ -815,11 +792,11 @@ impl SlowSpotApp {
                     color,
                 } => {
                     let content_h = if group_culprit_name.is_some() {
-                        40.0
+                        50.0
                     } else {
-                        18.0
+                        24.0
                     };
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 6.0 - content_h) / 2.0).max(0.0);
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 8.0 - content_h) / 2.0).max(0.0);
                     ui.add_space(pad_top);
 
                     ui.horizontal(|ui| {
@@ -882,7 +859,7 @@ impl SlowSpotApp {
                     subtitle,
                     color,
                 } => {
-                    let pad_top = ((STATUS_SLOT_HEIGHT - 6.0 - 18.0) / 2.0).max(0.0);
+                    let pad_top = ((STATUS_SLOT_HEIGHT - 8.0 - 24.0) / 2.0).max(0.0);
                     ui.add_space(pad_top);
 
                     ui.horizontal(|ui| {
@@ -1044,9 +1021,9 @@ impl SlowSpotApp {
 
             ui.add_space(2.0);
 
-            // Content area: fixed height (~40.0px), exactly 2 rows visible.
-            // Shows muted placeholder if 0 episodes; scrolls internally without growing if > 2 episodes.
-            let content_height = 40.0;
+            // Content area: fixed height (~22.0px), exactly 1 row visible.
+            // Shows muted placeholder if 0 episodes; scrolls internally without growing if > 1 episodes.
+            let content_height = 22.0;
             if episodes.is_empty() {
                 ui.allocate_ui_with_layout(
                     Vec2::new(ui.available_width(), content_height),
@@ -2424,14 +2401,14 @@ mod tests {
         }
     }
 
-    /// Verifies visible rows requirement: >= 9 rows at 1000x680 and >= 5 at 760x520 (Addendum requirement 3).
+    /// Verifies visible rows requirement: >= 8 rows at 1000x680 and >= 4 at 760x520 (Defect 1 targets).
     #[test]
     fn test_visible_rows_count_at_supported_resolutions() {
         use crate::collector::SampleSource;
         let ctx = egui::Context::default();
         crate::ui::theme::install(&ctx);
 
-        let test_cases = [(1000.0f32, 680.0f32, 9usize), (760.0, 520.0, 5)];
+        let test_cases = [(1000.0f32, 680.0f32, 8usize), (760.0, 520.0, 4)];
 
         for &(win_w, win_h, expected_min_rows) in &test_cases {
             let (_tx, rx) = std::sync::mpsc::channel();
@@ -3158,86 +3135,121 @@ mod tests {
         output.textures_delta.clear();
     }
 
-    /// Verifies that during Cooling phase at min width 760, header left cluster and right pills do not overlap (Defect 3).
+    /// Verifies that during Cooling phase at min width 760, header left cluster and right pills do not overlap (Defect 2).
     #[test]
     fn test_cooling_header_layout_no_overlap_at_760() {
         let ctx = egui::Context::default();
         crate::ui::theme::install(&ctx);
 
-        let (_tx, rx) = std::sync::mpsc::channel();
-        let mut app = SlowSpotApp {
-            rx,
-            actions: Box::new(crate::ui::DemoActions),
-            state: ViewState::new(),
-            demo: true,
-            confirm_kill: None,
-            last_update_instant: None,
-        };
-
         let now = Instant::now();
-        // Trigger cooldown mode
-        app.state.cooldown_until = Some(now + Duration::from_secs(10));
-        assert!(app.state.is_cooldown_active(now));
 
-        let snap = SystemSnapshot {
-            timestamp_ms: 1000,
-            totals: crate::model::SystemTotals {
-                cpu_percent: 25.0,
-                memory_used_bytes: 4 * 1024 * 1024 * 1024,
-                memory_total_bytes: 16 * 1024 * 1024 * 1024,
-                disk_bps: 100.0,
-            },
-            processes: vec![],
-            pressure: crate::model::PressureState::Smooth,
-            watched: Vec::new(),
-            breakdown: None,
-        };
-        app.state.push_snapshot(snap, now);
+        // Test both with 0 watched processes and with >= 1 watched processes
+        for has_watched in [false, true] {
+            let (_tx, rx) = std::sync::mpsc::channel();
+            let mut app = SlowSpotApp {
+                rx,
+                actions: Box::new(crate::ui::DemoActions),
+                state: ViewState::new(),
+                demo: true,
+                confirm_kill: None,
+                last_update_instant: None,
+            };
 
-        let raw_input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::Vec2::new(760.0, 520.0),
-            )),
-            ..Default::default()
-        };
+            // Trigger cooldown mode
+            app.state.cooldown_until = Some(now + Duration::from_secs(10));
+            assert!(app.state.is_cooldown_active(now));
 
-        let mut output = ctx.run_ui(raw_input, |ui| {
-            app.render_ui(ui, now);
-        });
+            let watched = if has_watched {
+                vec![crate::model::Episode {
+                    pid: 1234,
+                    name: "heavy.exe".to_string(),
+                    process_count: 1,
+                    started_at: 1000,
+                    peak_score: 85.0,
+                    peak_cpu: 85.0,
+                    peak_ram_bytes: 1024 * 1024 * 1024,
+                    peak_disk_bps: 100.0,
+                    overloaded_seconds: 10,
+                    last_overloaded_at: 1000,
+                    state: crate::model::EpisodeState::Cooling,
+                    kind: crate::model::ProcessKind::UserApp,
+                    killable: true,
+                    score_history: vec![85.0],
+                }]
+            } else {
+                Vec::new()
+            };
 
-        // Locate the rightmost x coordinate of left-cluster header texts
-        // and the leftmost x coordinate of CPU label in the CPU chip.
-        let mut cpu_label_x = None;
-        let mut left_cluster_max_x = 0.0f32;
+            let snap = SystemSnapshot {
+                timestamp_ms: 1000,
+                totals: crate::model::SystemTotals {
+                    cpu_percent: 25.0,
+                    memory_used_bytes: 4 * 1024 * 1024 * 1024,
+                    memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                    disk_bps: 100.0,
+                },
+                processes: vec![],
+                pressure: crate::model::PressureState::Smooth,
+                watched,
+                breakdown: None,
+            };
+            app.state.push_snapshot(snap, now);
 
-        for shape in &output.shapes {
-            if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
-                let text = text_shape.galley.text();
-                let text_rect = egui::Rect::from_min_size(text_shape.pos, text_shape.galley.size());
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(760.0, 520.0),
+                )),
+                ..Default::default()
+            };
 
-                // Header elements in top region (y < 60)
-                if text_rect.min.y < 60.0 {
-                    if text == "CPU" {
-                        cpu_label_x = Some(text_rect.min.x);
-                    } else if text == "SlowSpot"
-                        || text == strings::BADGE_DEMO
-                        || text == strings::PRESSURE_SMOOTH
-                        || text == strings::NOTICE_COOLDOWN
-                    {
-                        left_cluster_max_x = left_cluster_max_x.max(text_rect.max.x);
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.render_ui(ui, now);
+            });
+
+            // Locate CPU label min_x and rightmost x coordinate of left-cluster header texts
+            let mut cpu_label_x = None;
+            let mut left_cluster_max_x = 0.0f32;
+            let mut has_watched_badge_in_header = false;
+
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    let text = text_shape.galley.text();
+                    let text_rect =
+                        egui::Rect::from_min_size(text_shape.pos, text_shape.galley.size());
+
+                    // Header elements in top region (y < 60)
+                    if text_rect.min.y < 60.0 {
+                        if text == "CPU" {
+                            cpu_label_x = Some(text_rect.min.x);
+                        } else if text.starts_with(strings::BADGE_WATCHING_HEADER_PREFIX) {
+                            has_watched_badge_in_header = true;
+                        } else if text != "RAM"
+                            && text != "Đĩa"
+                            && !text.contains('%')
+                            && !text.contains("B/s")
+                            && text != strings::BTN_PAUSE
+                            && text != strings::BTN_RESUME
+                        {
+                            left_cluster_max_x = left_cluster_max_x.max(text_rect.max.x);
+                        }
                     }
                 }
             }
+
+            assert!(
+                !has_watched_badge_in_header,
+                "Redundant 'Theo dõi: N' chip must NOT be rendered in the header banner"
+            );
+
+            let cpu_x = cpu_label_x.expect("CPU chip label must be rendered in header");
+            assert!(
+                left_cluster_max_x < cpu_x,
+                "Left header cluster text (max x: {left_cluster_max_x}) must NOT overlap or touch CPU pill (min x: {cpu_x}) when has_watched={has_watched}"
+            );
+
+            output.textures_delta.clear();
         }
-
-        let cpu_x = cpu_label_x.expect("CPU chip label must be rendered in header");
-        assert!(
-            left_cluster_max_x < cpu_x,
-            "Left header cluster text (max x: {left_cluster_max_x}) must NOT overlap or touch CPU pill (min x: {cpu_x})"
-        );
-
-        output.textures_delta.clear();
     }
 
     /// Verifies that a single-process group does NOT show a '×1' tag in the table row (Defect 4).
@@ -3528,7 +3540,206 @@ mod tests {
         }
 
         // Verify constant slot height constants
-        assert_eq!(WATCHED_SLOT_HEIGHT, 64.0);
-        assert_eq!(STATUS_SLOT_HEIGHT, 64.0);
+        assert_eq!(WATCHED_SLOT_HEIGHT, 50.0);
+        assert_eq!(STATUS_SLOT_HEIGHT, 104.0);
+    }
+
+    /// Regression test for Defect 1 & Defect 4:
+    /// Computes the required height of the culprit card content and asserts STATUS_SLOT_HEIGHT >= that value.
+    /// Also asserts every button is fully visible and clickable without clipping in both Suspicious and Culprit states
+    /// at both 1000x680 and 760x520.
+    #[test]
+    fn test_culprit_card_content_height_fits_in_status_slot() {
+        use crate::model::{
+            Bottleneck, PressureState, ProcessKind, ProcessRecord, Severity, SystemTotals,
+        };
+        let ctx = egui::Context::default();
+        crate::ui::theme::install(&ctx);
+
+        let test_cases = [
+            // (severity, score, is_killable, window_size)
+            (
+                Severity::Culprit,
+                92.0,
+                true,
+                egui::Vec2::new(1000.0, 680.0),
+            ),
+            (Severity::Culprit, 92.0, true, egui::Vec2::new(760.0, 520.0)),
+            (
+                Severity::Suspicious,
+                55.0,
+                true,
+                egui::Vec2::new(1000.0, 680.0),
+            ),
+            (
+                Severity::Suspicious,
+                55.0,
+                true,
+                egui::Vec2::new(760.0, 520.0),
+            ),
+            (
+                Severity::Culprit,
+                95.0,
+                false,
+                egui::Vec2::new(760.0, 520.0),
+            ),
+        ];
+
+        for (severity, score, killable, win_size) in test_cases {
+            let (_tx, rx) = std::sync::mpsc::channel();
+            let mut app = SlowSpotApp {
+                rx,
+                actions: Box::new(crate::ui::DemoActions),
+                state: ViewState::new(),
+                demo: false,
+                confirm_kill: None,
+                last_update_instant: None,
+            };
+
+            let culprit = ScoredProcess {
+                record: ProcessRecord {
+                    pid: 1420,
+                    parent_pid: None,
+                    name: "heavy_task.exe".to_string(),
+                    exe_path: None,
+                    cpu_percent: 88.0,
+                    memory_bytes: 1024 * 1024 * 1024,
+                    disk_read_bps: 100.0,
+                    disk_write_bps: 100.0,
+                },
+                kind: if killable {
+                    ProcessKind::UserApp
+                } else {
+                    ProcessKind::SystemCritical
+                },
+                score,
+                main_bottleneck: Bottleneck::Cpu,
+                severity,
+                killable,
+            };
+
+            let snap = SystemSnapshot {
+                timestamp_ms: 1000,
+                totals: SystemTotals {
+                    cpu_percent: 90.0,
+                    memory_used_bytes: 8 * 1024 * 1024 * 1024,
+                    memory_total_bytes: 16 * 1024 * 1024 * 1024,
+                    disk_bps: 1000.0,
+                },
+                processes: vec![culprit.clone()],
+                pressure: PressureState::Overloaded,
+                watched: Vec::new(),
+                breakdown: None,
+            };
+            app.state.push_snapshot(snap, Instant::now());
+
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, win_size)),
+                ..Default::default()
+            };
+
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                app.render_ui(ui, Instant::now());
+            });
+
+            // Find all shapes belonging to the culprit card:
+            let mut card_min_y = f32::MAX;
+            let mut card_max_y = f32::MIN;
+            let mut found_buttons = Vec::new();
+            let mut found_note = false;
+
+            let is_culprit_element = |t: &str| -> bool {
+                t == level_tokens(severity).title
+                    || t == "Thủ phạm"
+                    || t == "Đáng ngờ"
+                    || t == "Hệ thống"
+                    || t.starts_with(strings::HERO_SCORE_LABEL)
+                    || t == "heavy_task.exe"
+                    || t.starts_with("(PID ")
+                    || t.starts_with("— ")
+                    || t == strings::BTN_GRACEFUL_CLOSE
+                    || t == strings::BTN_FORCE_KILL
+                    || (t.starts_with(strings::BTN_FORCE_KILL) && t.ends_with(')'))
+                    || t == strings::BTN_OPEN_LOCATION
+                    || t == strings::BTN_IGNORE_CULPRIT
+                    || t == strings::TOOLTIP_SYSTEM_PROTECTED
+                    || t == strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT
+                    || t.starts_with(strings::TOOLTIP_WAIT_GRACEFUL_PREFIX)
+            };
+
+            let slot_start_y = 118.0;
+            let slot_end_y = slot_start_y + STATUS_SLOT_HEIGHT;
+
+            for shape in &output.shapes {
+                if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
+                    let text = text_shape.galley.text();
+                    let pos = text_shape.pos;
+                    let size = text_shape.galley.size();
+
+                    // Elements inside the status card slot
+                    if pos.y >= slot_start_y
+                        && (pos.y + size.y) <= slot_end_y + 10.0
+                        && is_culprit_element(text)
+                    {
+                        card_min_y = card_min_y.min(pos.y);
+                        card_max_y = card_max_y.max(pos.y + size.y);
+
+                        let is_force_kill_btn = text == strings::BTN_FORCE_KILL
+                            || (text.starts_with(strings::BTN_FORCE_KILL) && text.ends_with(')'));
+
+                        if text == strings::BTN_GRACEFUL_CLOSE
+                            || is_force_kill_btn
+                            || text == strings::BTN_OPEN_LOCATION
+                            || text == strings::BTN_IGNORE_CULPRIT
+                        {
+                            found_buttons.push((text.to_string(), pos, size));
+                        } else if text == strings::TOOLTIP_SYSTEM_PROTECTED
+                            || text == strings::NOTICE_FORCE_KILL_DISABLED_DEFAULT
+                            || text.starts_with(strings::TOOLTIP_WAIT_GRACEFUL_PREFIX)
+                        {
+                            found_note = true;
+                        }
+                    }
+                }
+            }
+
+            output.textures_delta.clear();
+
+            // Assert that all 4 action buttons were rendered
+            assert_eq!(
+                found_buttons.len(),
+                4,
+                "All 4 buttons must be rendered in culprit card at {:?}, found: {:?}",
+                win_size,
+                found_buttons
+            );
+
+            // Assert that the safety note was rendered when force-kill is not yet active
+            assert!(
+                found_note,
+                "Safety note must be rendered in culprit card at {:?}",
+                win_size
+            );
+
+            // Frame inner margin is 4px top + 4px bottom = 8px
+            let content_span = card_max_y - card_min_y;
+            let required_height = content_span + 8.0;
+
+            assert!(
+                STATUS_SLOT_HEIGHT >= required_height,
+                "STATUS_SLOT_HEIGHT ({STATUS_SLOT_HEIGHT}) must be >= required content height ({required_height}) for {:?} at {:?}",
+                severity,
+                win_size
+            );
+
+            // Ensure every button's bottom edge is comfortably within the card span
+            for (btn_name, btn_pos, btn_size) in found_buttons {
+                let btn_bottom = btn_pos.y + btn_size.y;
+                assert!(
+                    btn_bottom <= card_max_y,
+                    "Button '{btn_name}' bottom ({btn_bottom}) must not exceed card bottom ({card_max_y})"
+                );
+            }
+        }
     }
 }
