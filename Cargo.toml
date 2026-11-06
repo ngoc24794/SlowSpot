@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Lightweight Windows performance monitor identifying PC bottleneck culprits"
 readme = "README.md"
+license = "MIT"
 keywords = ["windows", "system-monitor", "performance", "gui", "portable"]
 categories = ["command-line-utilities", "gui"]
 
