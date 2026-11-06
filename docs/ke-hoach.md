@@ -16,6 +16,17 @@ Dependency đã được duyệt: `eframe` 0.37 (feature `glow`, tắt `wgpu`), 
 | 6 | `wiring` | `src/main.rs`, `src/app.rs` | Nối collector, analyzer, ui, platform; lỗi OpenGL thì hiện MessageBox tiếng Việt rồi thoát; repaint theo sự kiện; ứng dụng chạy thật được | **ĐÃ XONG** |
 | 7 | `package` | `Cargo.toml` (metadata), `scripts/package.ps1`, `scripts/verify.ps1`, `README.md`, `docs/*` | `cargo build --release` ra `dist/slowspot.exe` (+ zip), script đo kiểm; cập nhật README và docs theo thực tế | **ĐÃ XONG** |
 
+## Giai đoạn bổ sung sau task 7 (UI/UX và theo dõi quá tải)
+
+| Nhánh | Nội dung | Trạng thái |
+|---|---|---|
+| `uiux`, `uiux2`, `uiux3` | Nâng cấp UI/UX (palette, biểu đồ, bảng, thanh trạng thái, vùng cuộn cắt gọn) | ĐÃ XONG |
+| `watch` | Theo dõi tiến trình quá tải theo đợt, phân tích theo nhóm | ĐÃ XONG |
+| `demo` | Demo theo giai đoạn, màu khung theo mức độ | ĐÃ XONG |
+| `polish3`, `polish4` | Bố cục ổn định (khung cố định), huy hiệu theo mức độ | ĐÃ XONG |
+| `selfshot` | Cờ `--screenshot`, kiểm tra bố cục tự động | ĐÃ XONG |
+| `polish5` | Sửa cắt khung, chồng chữ ở 760x520 | ĐÃ XONG |
+
 ## Cách review mỗi task (orchestrator)
 1. Đọc `.agents/reports/<task>.md` và `git diff main...agent/<task>`; xác nhận không có file ngoài phạm vi, secret, lệnh lạ; code và comment bằng tiếng Anh.
 2. Chạy trong worktree: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`.

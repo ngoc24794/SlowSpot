@@ -85,8 +85,18 @@ SlowSpot tích hợp sẵn chế độ mô phỏng độc lập (`MockSource` & 
 ```
 
 Trong chế độ demo:
-- Dữ liệu tiến trình được giả lập tự động xoay vòng qua 3 kịch bản: **Đột biến CPU (Heavy CPU Hog)**, **Xung đột đĩa (Disk Thrashing)**, và **Hệ thống bình thường (Normal Idle)**.
-- Các nút tương tác ([Đóng ứng dụng], [Bỏ qua]) hoạt động an toàn và ghi nhận phản hồi giao diện trực tiếp mà không dừng bất kỳ tiến trình thật nào của hệ điều hành.
+- Kịch bản xoay vòng theo giai đoạn: **Bình thường → Đáng ngờ (vàng) → Thủ phạm (đỏ) → Hạ nhiệt → Phục hồi**. Thanh trạng thái hiển thị giai đoạn hiện tại và số giây còn lại.
+- Các nút tương tác ([Đóng an toàn], [Bỏ qua]) chỉ ghi nhận phản hồi giao diện, không dừng bất kỳ tiến trình thật nào của hệ điều hành.
+
+### Theo dõi tiến trình quá tải
+Tiến trình quá tải được theo dõi từ thời điểm bắt đầu: trạng thái **Quá tải → Hạ nhiệt (còn N giây) → Phục hồi/Đã thoát**, giữ lại mặc định 120 giây (`watch_retention_secs`). Khi hệ thống quá tải mà không có một thủ phạm riêng lẻ, SlowSpot gom theo tên tiến trình để chỉ ra nhóm chiếm nhiều tài nguyên nhất.
+
+### Chụp ảnh giao diện tự động (kiểm thử bố cục)
+```powershell
+.\scripts\shots.ps1        # build release, chụp 4 giai đoạn x 2 kích thước (1000x680, 760x520)
+.\slowspot.exe --demo --screenshot <thư mục> --size 1000x680
+```
+Ảnh được lấy từ khung hình do chính ứng dụng vẽ (không phụ thuộc màn hình). Các kiểm tra bố cục (không cắt chữ, không chồng chữ, khoảng cách khối) chạy trong `cargo test`.
 
 ---
 
