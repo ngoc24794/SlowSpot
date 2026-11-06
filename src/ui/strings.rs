@@ -11,6 +11,7 @@ pub const PRESSURE_SMOOTH: &str = "Mượt mà";
 pub const PRESSURE_STRAINED: &str = "Căng thẳng";
 pub const PRESSURE_OVERLOADED: &str = "Quá tải";
 pub const PRESSURE_WAITING: &str = "Đang chờ dữ liệu...";
+pub const STATUS_SUSPICIOUS: &str = "Có dấu hiệu chậm";
 
 // Cooldown Notice
 pub const NOTICE_COOLDOWN: &str = "Đã hạ nhiệt, PC đã mượt trở lại";
@@ -45,6 +46,7 @@ pub const HERO_REASON_PREFIX: &str = "Nguyên nhân:";
 
 // Watched Processes Panel ("Đang theo dõi")
 pub const WATCHED_PANEL_TITLE: &str = "Đang theo dõi";
+pub const WATCHED_EMPTY_PLACEHOLDER: &str = "Chưa có tiến trình nào cần theo dõi";
 pub const WATCHED_BADGE_OVERLOADED: &str = "Quá tải";
 pub const WATCHED_BADGE_COOLING_PREFIX: &str = "Hạ nhiệt (còn ";
 pub const WATCHED_BADGE_COOLING_SUFFIX: &str = "s)";
@@ -145,6 +147,7 @@ mod tests {
         PRESSURE_STRAINED,
         PRESSURE_OVERLOADED,
         PRESSURE_WAITING,
+        STATUS_SUSPICIOUS,
         NOTICE_COOLDOWN,
         RES_CPU,
         RES_RAM,
@@ -166,6 +169,7 @@ mod tests {
         HERO_PROTECTED_BADGE,
         HERO_REASON_PREFIX,
         WATCHED_PANEL_TITLE,
+        WATCHED_EMPTY_PLACEHOLDER,
         WATCHED_BADGE_OVERLOADED,
         WATCHED_BADGE_COOLING_PREFIX,
         WATCHED_BADGE_COOLING_SUFFIX,

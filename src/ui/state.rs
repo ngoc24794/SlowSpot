@@ -461,10 +461,11 @@ impl ViewState {
             .and_then(|b| b.group_culprit.as_ref())
     }
 
-    /// Returns the group member count (e.g. Some(3)) if this process belongs to the active group culprit.
+    /// Returns the group member count (e.g. Some(3)) if this process belongs to the active group culprit
+    /// and the group contains at least 2 live processes.
     pub fn is_group_culprit_member(&self, name: &str) -> Option<usize> {
         let gc = self.group_culprit()?;
-        if gc.name.eq_ignore_ascii_case(name) {
+        if gc.process_count >= 2 && gc.name.eq_ignore_ascii_case(name) {
             Some(gc.process_count)
         } else {
             None
