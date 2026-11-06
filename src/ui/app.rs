@@ -44,13 +44,13 @@ pub struct SlowSpotApp {
 pub const SECTION_GAP: f32 = 8.0;
 
 /// Fixed height of the "Đang theo dõi" (Watched) panel slot.
-pub const WATCHED_SLOT_HEIGHT: f32 = 50.0;
+pub const WATCHED_SLOT_HEIGHT: f32 = 62.0;
 
 /// Fixed height of the status area (Hero culprit card / smooth calm banner) slot.
-pub const STATUS_SLOT_HEIGHT: f32 = 104.0;
+pub const STATUS_SLOT_HEIGHT: f32 = 100.0;
 
 /// Fixed height of the real-time sparkline charts card.
-pub const SPARKLINE_HEIGHT: f32 = 42.0;
+pub const SPARKLINE_HEIGHT: f32 = 72.0;
 
 /// Active visual presentation state of the hero card.
 #[derive(Debug, Clone, PartialEq)]
@@ -189,12 +189,15 @@ impl SlowSpotApp {
             header_card_rect: egui::Rect::ZERO,
             header_elements: Vec::new(),
             watched_slot_rect: egui::Rect::ZERO,
+            watched_row_rect: None,
             status_slot_rect: egui::Rect::ZERO,
             action_buttons: Vec::new(),
             charts_rect: egui::Rect::ZERO,
+            chart_plots: Vec::new(),
             table_card_rect: egui::Rect::ZERO,
             table_body_rect: egui::Rect::ZERO,
             table_visible_rows: 0,
+            status_bar_elements: Vec::new(),
         });
 
         // 1. Drain incoming snapshots from the collector thread
@@ -335,7 +338,7 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(12, 6))
+            .inner_margin(Margin::symmetric(12, 5))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         let card_resp = card_frame.show(ui, |ui| {
@@ -650,6 +653,7 @@ impl SlowSpotApp {
         card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_min_height(STATUS_SLOT_HEIGHT - 16.0);
+            ui.set_max_height(STATUS_SLOT_HEIGHT - 16.0);
             ui.spacing_mut().item_spacing.y = 2.0;
             match banner_state {
                 HeroBannerState::Culprit(target) => {
@@ -1021,7 +1025,7 @@ impl SlowSpotApp {
         let [w0, w1, w2] = charts::calculate_sparkline_widths(available_width, spacing);
 
         let resp = ui.horizontal(|ui| {
-            charts::sparkline(
+            let (_, p0, t0) = charts::sparkline(
                 ui,
                 SparklineConfig {
                     title: strings::SPARKLINE_CPU_TITLE,
@@ -1034,7 +1038,7 @@ impl SlowSpotApp {
                 },
                 &cpu_values,
             );
-            charts::sparkline(
+            let (_, p1, t1) = charts::sparkline(
                 ui,
                 SparklineConfig {
                     title: strings::SPARKLINE_RAM_TITLE,
@@ -1047,7 +1051,7 @@ impl SlowSpotApp {
                 },
                 &ram_values,
             );
-            charts::sparkline(
+            let (_, p2, t2) = charts::sparkline(
                 ui,
                 SparklineConfig {
                     title: strings::SPARKLINE_DISK_TITLE,
@@ -1060,9 +1064,11 @@ impl SlowSpotApp {
                 },
                 &disk_values,
             );
+            vec![(p0, t0), (p1, t1), (p2, t2)]
         });
         if let Some(l) = &mut self.current_layout {
             l.charts_rect = resp.response.rect;
+            l.chart_plots = resp.inner;
         }
     }
 
@@ -1094,6 +1100,7 @@ impl SlowSpotApp {
         card_frame.show(&mut slot_ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_min_height(WATCHED_SLOT_HEIGHT - 16.0);
+            ui.set_max_height(WATCHED_SLOT_HEIGHT - 16.0);
             ui.spacing_mut().item_spacing.y = 2.0;
 
             // Header row
@@ -1137,11 +1144,9 @@ impl SlowSpotApp {
                 });
             });
 
-            ui.add_space(2.0);
-
-            // Content area: fixed height (~18.0px), exactly 1 row visible.
+            // Content area: fixed height (24.0px), exactly 1 row visible.
             // Shows muted placeholder if 0 episodes; scrolls internally without growing if > 1 episodes.
-            let content_height = 18.0;
+            let content_height = 24.0;
             if episodes.is_empty() {
                 ui.allocate_ui_with_layout(
                     Vec2::new(ui.available_width(), content_height),
@@ -1181,10 +1186,11 @@ impl SlowSpotApp {
         let row_frame = egui::Frame::new()
             .fill(COLOR_BG)
             .corner_radius(RADIUS_SM)
-            .inner_margin(Margin::symmetric(6, 1))
+            .inner_margin(Margin::symmetric(6, 2))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
-        row_frame.show(ui, |ui| {
+        let row_resp = row_frame.show(ui, |ui| {
+            ui.set_height(20.0);
             ui.horizontal(|ui| {
                 // Expand toggle for group episodes
                 if ep.is_group() {
@@ -1433,6 +1439,12 @@ impl SlowSpotApp {
                 });
             }
         });
+
+        if let Some(l) = &mut self.current_layout {
+            if l.watched_row_rect.is_none() {
+                l.watched_row_rect = Some(row_resp.response.rect);
+            }
+        }
     }
 
     /// Renders the main process table with flat sortable headers, search filtering,
@@ -1441,7 +1453,7 @@ impl SlowSpotApp {
         let card_frame = egui::Frame::new()
             .fill(COLOR_CARD)
             .corner_radius(RADIUS_MD)
-            .inner_margin(Margin::symmetric(10, 5))
+            .inner_margin(Margin::symmetric(10, 4))
             .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
 
         let card_resp = card_frame.show(ui, |ui| {
@@ -1471,7 +1483,7 @@ impl SlowSpotApp {
                 });
             });
 
-            ui.add_space(2.0);
+            ui.add_space(1.0);
 
             // Column Header Layout Computation
             let card_available = ui.available_width();
@@ -1945,91 +1957,220 @@ impl SlowSpotApp {
 
     /// Renders the bottom status bar with keyboard shortcuts, last update timestamp,
     /// and total process count.
-    fn render_bottom_status_bar(&self, ui: &mut egui::Ui, now: Instant) {
+    fn render_bottom_status_bar(&mut self, ui: &mut egui::Ui, now: Instant) {
+        let avail_w = ui.available_width();
+        let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
+        let painter = ui.painter();
+
+        let update_str = match self.last_update_instant {
+            Some(t) => {
+                let elapsed_secs = now.duration_since(t).as_secs();
+                if elapsed_secs == 0 {
+                    format!("{} vừa xong", strings::STATUS_UPDATED_PREFIX)
+                } else {
+                    format!("{} {}s trước", strings::STATUS_UPDATED_PREFIX, elapsed_secs)
+                }
+            }
+            None => format!("{} --", strings::STATUS_UPDATED_PREFIX),
+        };
+
+        let proc_count = self.state.display_processes.len();
+        let count_str = format!(
+            "{} {} {}",
+            strings::STATUS_TOTAL_PROCESSES,
+            proc_count,
+            strings::STATUS_PROCESS_UNIT
+        );
+
+        let paused_str = if self.state.is_paused {
+            Some(format!("[{}]", strings::BADGE_PAUSED))
+        } else {
+            None
+        };
+
+        let demo_str = if self.demo {
+            let ts = self
+                .state
+                .latest_snapshot
+                .as_ref()
+                .map(|s| s.timestamp_ms)
+                .unwrap_or(crate::collector::MockSource::BASE_TIMESTAMP_MS);
+            let (phase_name, rem_secs) = crate::collector::MockSource::demo_phase_at(ts);
+            Some(format!(
+                "[DEMO] Giai đoạn: {} · còn {}s",
+                phase_name, rem_secs
+            ))
+        } else {
+            None
+        };
+
+        let spacing = ui.spacing().item_spacing.x;
+        let sep_str = "|";
+        let sep_w = painter
+            .layout_no_wrap(sep_str.to_string(), font_id.clone(), COLOR_BORDER)
+            .size()
+            .x
+            + spacing;
+        let update_w = painter
+            .layout_no_wrap(update_str.clone(), font_id.clone(), COLOR_MUTED_FOREGROUND)
+            .size()
+            .x
+            + spacing;
+        let count_w = painter
+            .layout_no_wrap(count_str.clone(), font_id.clone(), COLOR_MUTED_FOREGROUND)
+            .size()
+            .x
+            + spacing;
+        let paused_w = paused_str
+            .as_ref()
+            .map(|s| {
+                painter
+                    .layout_no_wrap(s.clone(), font_id.clone(), COLOR_WARNING)
+                    .size()
+                    .x
+                    + spacing
+            })
+            .unwrap_or(0.0);
+        let demo_w = demo_str
+            .as_ref()
+            .map(|s| {
+                painter
+                    .layout_no_wrap(s.clone(), font_id.clone(), COLOR_WARNING)
+                    .size()
+                    .x
+                    + spacing
+            })
+            .unwrap_or(0.0);
+
+        // Essential right width (update + demo + paused + separators): NEVER drop demo phase
+        let mut essential_right_w = update_w;
+        if paused_str.is_some() {
+            essential_right_w += sep_w + paused_w;
+        }
+        if demo_str.is_some() {
+            essential_right_w += sep_w + demo_w;
+        }
+        let full_right_w = essential_right_w + sep_w + count_w;
+
+        // Shortcuts candidates (priority: drop/ellipsize shortcuts first, then counts, never demo)
+        let full_shortcuts = strings::STATUS_HINT_SHORTCUTS;
+        let full_shortcuts_w = painter
+            .layout_no_wrap(
+                full_shortcuts.to_string(),
+                font_id.clone(),
+                COLOR_MUTED_FOREGROUND,
+            )
+            .size()
+            .x;
+        let med_shortcuts = "Ctrl+F: Tìm kiếm | Space: Tạm dừng";
+        let med_shortcuts_w = painter
+            .layout_no_wrap(
+                med_shortcuts.to_string(),
+                font_id.clone(),
+                COLOR_MUTED_FOREGROUND,
+            )
+            .size()
+            .x;
+        let min_shortcuts = "Ctrl+F | Space";
+        let min_shortcuts_w = painter
+            .layout_no_wrap(
+                min_shortcuts.to_string(),
+                font_id.clone(),
+                COLOR_MUTED_FOREGROUND,
+            )
+            .size()
+            .x;
+
+        let safety_gap = 16.0;
+        let (show_count, chosen_shortcuts) =
+            if avail_w >= full_right_w + safety_gap + full_shortcuts_w {
+                (true, Some(full_shortcuts))
+            } else if avail_w >= full_right_w + safety_gap + med_shortcuts_w {
+                (true, Some(med_shortcuts))
+            } else if avail_w >= full_right_w + safety_gap + min_shortcuts_w {
+                (true, Some(min_shortcuts))
+            } else if avail_w >= full_right_w + safety_gap {
+                (true, None)
+            } else if avail_w >= essential_right_w + safety_gap + min_shortcuts_w {
+                (false, Some(min_shortcuts))
+            } else {
+                (false, None)
+            };
+
+        let mut bar_elements = Vec::new();
+
         ui.horizontal(|ui| {
-            // Left: Keyboard Shortcut Cheatsheet (>= 12px, solid high-contrast muted foreground)
-            ui.label(
-                RichText::new(strings::STATUS_HINT_SHORTCUTS)
-                    .color(COLOR_MUTED_FOREGROUND)
-                    .size(FONT_SIZE_CAPTION),
-            );
+            // Left: Shortcuts
+            if let Some(sc) = chosen_shortcuts {
+                let resp = ui.label(
+                    RichText::new(sc)
+                        .color(COLOR_MUTED_FOREGROUND)
+                        .size(FONT_SIZE_CAPTION),
+                );
+                bar_elements.push(("shortcuts", resp.rect));
+            }
 
             // Right: Metadata (Last Updated, Process Count, Demo / Paused badges)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let update_str = match self.last_update_instant {
-                    Some(t) => {
-                        let elapsed_secs = now.duration_since(t).as_secs();
-                        if elapsed_secs == 0 {
-                            format!("{} vừa xong", strings::STATUS_UPDATED_PREFIX)
-                        } else {
-                            format!("{} {}s trước", strings::STATUS_UPDATED_PREFIX, elapsed_secs)
-                        }
-                    }
-                    None => format!("{} --", strings::STATUS_UPDATED_PREFIX),
-                };
-
-                ui.label(
+                let update_resp = ui.label(
                     RichText::new(update_str)
                         .color(COLOR_MUTED_FOREGROUND)
                         .size(FONT_SIZE_CAPTION),
                 );
+                bar_elements.push(("update_time", update_resp.rect));
 
-                ui.label(
-                    RichText::new("|")
-                        .color(COLOR_BORDER)
-                        .size(FONT_SIZE_CAPTION),
-                );
-
-                let proc_count = self.state.display_processes.len();
-                let count_str = format!(
-                    "{} {} {}",
-                    strings::STATUS_TOTAL_PROCESSES,
-                    proc_count,
-                    strings::STATUS_PROCESS_UNIT
-                );
-                ui.label(
-                    RichText::new(count_str)
-                        .color(COLOR_MUTED_FOREGROUND)
-                        .size(FONT_SIZE_CAPTION),
-                );
-
-                if self.state.is_paused {
-                    ui.label(
-                        RichText::new("|")
-                            .color(COLOR_BORDER_SUBTLE)
+                if show_count {
+                    let sep1 = ui.label(
+                        RichText::new(sep_str)
+                            .color(COLOR_BORDER)
                             .size(FONT_SIZE_CAPTION),
                     );
-                    ui.label(
-                        RichText::new(format!("[{}]", strings::BADGE_PAUSED))
-                            .color(COLOR_WARNING)
-                            .size(FONT_SIZE_CAPTION)
-                            .strong(),
+                    bar_elements.push(("sep_count", sep1.rect));
+                    let count_resp = ui.label(
+                        RichText::new(count_str)
+                            .color(COLOR_MUTED_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
                     );
+                    bar_elements.push(("process_count", count_resp.rect));
                 }
 
-                if self.demo {
-                    ui.label(
-                        RichText::new("|")
+                if let Some(p) = paused_str {
+                    let sep2 = ui.label(
+                        RichText::new(sep_str)
                             .color(COLOR_BORDER_SUBTLE)
                             .size(FONT_SIZE_CAPTION),
                     );
-                    let ts = self
-                        .state
-                        .latest_snapshot
-                        .as_ref()
-                        .map(|s| s.timestamp_ms)
-                        .unwrap_or(crate::collector::MockSource::BASE_TIMESTAMP_MS);
-                    let (phase_name, rem_secs) = crate::collector::MockSource::demo_phase_at(ts);
-                    let demo_str = format!("[DEMO] Giai đoạn: {} · còn {}s", phase_name, rem_secs);
-                    ui.label(
-                        RichText::new(demo_str)
+                    bar_elements.push(("sep_paused", sep2.rect));
+                    let paused_resp = ui.label(
+                        RichText::new(p)
                             .color(COLOR_WARNING)
                             .size(FONT_SIZE_CAPTION)
                             .strong(),
                     );
+                    bar_elements.push(("paused_badge", paused_resp.rect));
+                }
+
+                if let Some(d) = demo_str {
+                    let sep3 = ui.label(
+                        RichText::new(sep_str)
+                            .color(COLOR_BORDER_SUBTLE)
+                            .size(FONT_SIZE_CAPTION),
+                    );
+                    bar_elements.push(("sep_demo", sep3.rect));
+                    let demo_resp = ui.label(
+                        RichText::new(d)
+                            .color(COLOR_WARNING)
+                            .size(FONT_SIZE_CAPTION)
+                            .strong(),
+                    );
+                    bar_elements.push(("demo_phase", demo_resp.rect));
                 }
             });
         });
+
+        if let Some(l) = &mut self.current_layout {
+            l.status_bar_elements = bar_elements;
+        }
     }
 
     /// Renders the modal confirmation dialog for forced kill operations.
@@ -3681,8 +3822,9 @@ mod tests {
         }
 
         // Verify constant slot height constants
-        assert_eq!(WATCHED_SLOT_HEIGHT, 50.0);
-        assert_eq!(STATUS_SLOT_HEIGHT, 104.0);
+        assert_eq!(WATCHED_SLOT_HEIGHT, 62.0);
+        assert_eq!(STATUS_SLOT_HEIGHT, 100.0);
+        assert_eq!(SPARKLINE_HEIGHT, 72.0);
     }
 
     /// Regression test for Defect 1 & Defect 4:
@@ -3810,8 +3952,9 @@ mod tests {
                     || t.starts_with(strings::TOOLTIP_WAIT_GRACEFUL_PREFIX)
             };
 
-            let slot_start_y = 118.0;
-            let slot_end_y = slot_start_y + STATUS_SLOT_HEIGHT;
+            let status_slot = app.last_layout.as_ref().unwrap().status_slot_rect;
+            let slot_start_y = status_slot.min.y;
+            let slot_end_y = status_slot.max.y;
 
             for shape in &output.shapes {
                 if let egui::epaint::Shape::Text(text_shape) = &shape.shape {
@@ -3820,8 +3963,8 @@ mod tests {
                     let size = text_shape.galley.size();
 
                     // Elements inside the status card slot
-                    if pos.y >= slot_start_y
-                        && (pos.y + size.y) <= slot_end_y + 10.0
+                    if pos.y >= slot_start_y - 2.0
+                        && (pos.y + size.y) <= slot_end_y + 2.0
                         && is_culprit_element(text)
                     {
                         card_min_y = card_min_y.min(pos.y);

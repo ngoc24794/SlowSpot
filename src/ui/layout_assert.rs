@@ -18,18 +18,24 @@ pub struct LayoutSnapshot {
     pub header_elements: Vec<(&'static str, Rect)>,
     /// Bounding rectangle of the fixed "Đang theo dõi" (Watched) panel slot.
     pub watched_slot_rect: Rect,
+    /// Bounding rectangle of the active watched row (if any).
+    pub watched_row_rect: Option<Rect>,
     /// Bounding rectangle of the fixed status hero/calm card slot.
     pub status_slot_rect: Rect,
     /// Named bounding rectangles of action buttons rendered within the status slot.
     pub action_buttons: Vec<(&'static str, Rect)>,
     /// Bounding rectangle of the real-time sparkline charts card.
     pub charts_rect: Rect,
+    /// Pairs of (plot_rect, text_rects) for resource sparklines.
+    pub chart_plots: Vec<(Rect, Vec<Rect>)>,
     /// Bounding rectangle of the process table card.
     pub table_card_rect: Rect,
     /// Bounding rectangle of the interactive table body (rows viewport).
     pub table_body_rect: Rect,
     /// Number of completely visible process table rows.
     pub table_visible_rows: usize,
+    /// Named bounding rectangles of text and elements in the bottom status bar.
+    pub status_bar_elements: Vec<(&'static str, Rect)>,
 }
 
 impl LayoutSnapshot {
@@ -88,6 +94,64 @@ impl LayoutSnapshot {
                 "In phase '{phase_name}': table body rect ({:?}) extends outside table card ({:?})",
                 self.table_body_rect, self.table_card_rect
             ));
+        }
+
+        // 4b. Watched row is strictly inside watched card with >= 4px margin (D1)
+        if let Some(row_rect) = self.watched_row_rect {
+            if row_rect.min.x < self.watched_slot_rect.min.x + 4.0 - 0.5
+                || row_rect.max.x > self.watched_slot_rect.max.x - 4.0 + 0.5
+                || row_rect.min.y < self.watched_slot_rect.min.y + 4.0 - 0.5
+                || row_rect.max.y > self.watched_slot_rect.max.y - 4.0 + 0.5
+            {
+                return Err(format!(
+                    "In phase '{phase_name}': watched row rect ({row_rect:?}) is not inside watched card ({:?}) with >= 4px margin",
+                    self.watched_slot_rect
+                ));
+            }
+        }
+
+        // 4c. No chart text rect intersects plot rect, and plot has >= 2.0px padding from header and footer (D2)
+        for (plot_rect, text_rects) in &self.chart_plots {
+            if !plot_rect.is_positive() || plot_rect.height() < 4.0 {
+                return Err(format!(
+                    "In phase '{phase_name}': chart plot rect ({plot_rect:?}) is invalid or height ({:.1}px) < 4px",
+                    plot_rect.height()
+                ));
+            }
+            for text_rect in text_rects {
+                let inter = plot_rect.intersect(*text_rect);
+                if inter.is_positive() && inter.width() > 0.5 && inter.height() > 0.5 {
+                    return Err(format!(
+                        "In phase '{phase_name}': chart text rect ({text_rect:?}) intersects plot rect ({plot_rect:?}) by {:.1}x{:.1}px",
+                        inter.width(), inter.height()
+                    ));
+                }
+                // Text rect must be either strictly above plot with >= 2.0px margin or strictly below plot with >= 2.0px margin
+                let above_margin = plot_rect.min.y - text_rect.max.y;
+                let below_margin = text_rect.min.y - plot_rect.max.y;
+                if above_margin < 1.9 && below_margin < 1.9 {
+                    return Err(format!(
+                        "In phase '{phase_name}': chart text rect ({text_rect:?}) does not maintain >= 2px padding to plot rect ({plot_rect:?}) (above: {:.1}px, below: {:.1}px)",
+                        above_margin, below_margin
+                    ));
+                }
+            }
+        }
+
+        // 4d. No overlapping text in bottom status bar (D3)
+        for i in 0..self.status_bar_elements.len() {
+            for j in (i + 1)..self.status_bar_elements.len() {
+                let (name1, r1) = self.status_bar_elements[i];
+                let (name2, r2) = self.status_bar_elements[j];
+                let inter = r1.intersect(r2);
+                if inter.is_positive() && inter.width() > 0.5 && inter.height() > 0.5 {
+                    return Err(format!(
+                        "In phase '{phase_name}': status bar element '{name1}' ({r1:?}) overlaps with '{name2}' ({r2:?}) by {:.1}px horizontally and {:.1}px vertically!",
+                        inter.width(),
+                        inter.height()
+                    ));
+                }
+            }
         }
 
         // 5. Table visible rows count meets required threshold

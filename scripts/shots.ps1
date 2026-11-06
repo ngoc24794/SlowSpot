@@ -45,9 +45,18 @@ try {
         throw "Screenshot capture failed at 760x520 with exit code $($p2.ExitCode)"
     }
 
-    # 4. Print file list
+    # 4. Convert BMPs to PNG for easy viewing
+    Add-Type -AssemblyName System.Drawing
+    Get-ChildItem -Path $targetOutDir -Filter "*.bmp" | ForEach-Object {
+        $bmp = [System.Drawing.Image]::FromFile($_.FullName)
+        $pngPath = [System.IO.Path]::ChangeExtension($_.FullName, ".png")
+        $bmp.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Dispose()
+    }
+
+    # 5. Print file list
     Write-Host "`nGenerated screenshots in ${targetOutDir}:" -ForegroundColor Green
-    Get-ChildItem -Path $targetOutDir -Filter "*.bmp" | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+    Get-ChildItem -Path $targetOutDir -Include "*.bmp", "*.png" | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
 } finally {
     Pop-Location
 }
