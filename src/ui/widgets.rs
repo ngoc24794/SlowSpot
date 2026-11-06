@@ -539,11 +539,11 @@ pub fn watched_state_badge(ui: &mut Ui, state: EpisodeState, score: f32, remaini
 }
 
 /// Renders a tiny sparkline trend for watched process scores.
-pub fn mini_sparkline(ui: &mut Ui, values: &[f32], width: f32, height: f32) {
+pub fn mini_sparkline(ui: &mut Ui, values: &[f32], width: f32, height: f32) -> Rect {
     let size = Vec2::new(width, height);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     if !ui.is_rect_visible(rect) || values.len() < 2 {
-        return;
+        return rect;
     }
 
     let painter = ui.painter();
@@ -574,6 +574,7 @@ pub fn mini_sparkline(ui: &mut Ui, values: &[f32], width: f32, height: f32) {
     };
 
     painter.add(Shape::line(points, Stroke::new(1.5, stroke_color)));
+    rect
 }
 
 /// Renders a compact badge/tag marking a process row as actively monitored.

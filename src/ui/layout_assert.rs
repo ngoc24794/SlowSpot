@@ -20,8 +20,16 @@ pub struct LayoutSnapshot {
     pub watched_slot_rect: Rect,
     /// Bounding rectangle of the active watched row (if any).
     pub watched_row_rect: Option<Rect>,
+    /// Bounding rectangles of text and sparkline widgets inside the watched row.
+    pub watched_text_rects: Vec<Rect>,
+    /// Bounding rectangle of the action button inside the watched row.
+    pub watched_button_rect: Option<Rect>,
     /// Bounding rectangle of the fixed status hero/calm card slot.
     pub status_slot_rect: Rect,
+    /// Bounding rectangle of the painted status card frame.
+    pub status_frame_rect: Rect,
+    /// Bounding rectangle of the status card warning/safety note (if present).
+    pub status_note_rect: Option<Rect>,
     /// Named bounding rectangles of action buttons rendered within the status slot.
     pub action_buttons: Vec<(&'static str, Rect)>,
     /// Bounding rectangle of the real-time sparkline charts card.
@@ -72,15 +80,36 @@ impl LayoutSnapshot {
             }
         }
 
-        // 3. Every action button is fully inside the status slot
+        // 3. Status frame is fully inside status slot and all action buttons/note maintain >= 8px bottom padding (E1)
+        if self.status_frame_rect.is_positive()
+            && (self.status_frame_rect.min.x < self.status_slot_rect.min.x - 1.5
+                || self.status_frame_rect.max.x > self.status_slot_rect.max.x + 1.5
+                || self.status_frame_rect.min.y < self.status_slot_rect.min.y - 1.5
+                || self.status_frame_rect.max.y > self.status_slot_rect.max.y + 1.5)
+        {
+            return Err(format!(
+                "In phase '{phase_name}': status frame rect ({:?}) extends outside status slot ({:?})",
+                self.status_frame_rect, self.status_slot_rect
+            ));
+        }
+
         for (name, rect) in &self.action_buttons {
             if rect.min.x < self.status_slot_rect.min.x - 1.5
                 || rect.max.x > self.status_slot_rect.max.x + 1.5
                 || rect.min.y < self.status_slot_rect.min.y - 1.5
-                || rect.max.y > self.status_slot_rect.max.y + 1.5
+                || rect.max.y > self.status_slot_rect.max.y - 7.5
             {
                 return Err(format!(
-                    "In phase '{phase_name}': action button '{name}' rect ({rect:?}) extends outside status slot ({:?})",
+                    "In phase '{phase_name}': action button '{name}' rect ({rect:?}) extends outside status slot or violates >= 8px bottom padding ({:?})",
+                    self.status_slot_rect
+                ));
+            }
+        }
+
+        if let Some(note_rect) = self.status_note_rect {
+            if note_rect.max.y > self.status_slot_rect.max.y - 7.5 {
+                return Err(format!(
+                    "In phase '{phase_name}': status note rect ({note_rect:?}) does not maintain >= 8px bottom padding to status slot ({:?})",
                     self.status_slot_rect
                 ));
             }
@@ -107,6 +136,25 @@ impl LayoutSnapshot {
                     "In phase '{phase_name}': watched row rect ({row_rect:?}) is not inside watched card ({:?}) with >= 4px margin",
                     self.watched_slot_rect
                 ));
+            }
+        }
+
+        // 4b2. Watched row text rects never intersect button rect and maintain >= 8px padding (E3)
+        if let Some(btn_rect) = self.watched_button_rect {
+            for text_rect in &self.watched_text_rects {
+                let inter = text_rect.intersect(btn_rect);
+                if inter.is_positive() && inter.width() > 0.5 && inter.height() > 0.5 {
+                    return Err(format!(
+                        "In phase '{phase_name}': watched row text rect ({text_rect:?}) intersects button rect ({btn_rect:?}) by {:.1}x{:.1}px",
+                        inter.width(), inter.height()
+                    ));
+                }
+                if text_rect.max.x > btn_rect.min.x - 7.5 {
+                    return Err(format!(
+                        "In phase '{phase_name}': watched row text rect ({text_rect:?}) violates >= 8px padding to button rect ({btn_rect:?}) (gap: {:.1}px)",
+                        btn_rect.min.x - text_rect.max.x
+                    ));
+                }
             }
         }
 
