@@ -462,13 +462,13 @@ pub fn draw_sort_arrow(ui: &mut Ui, ascending: bool, color: Color32) -> Response
 }
 
 /// Renders a state badge for a watched episode with WCAG-compliant shape + text.
-pub fn watched_state_badge(ui: &mut Ui, state: EpisodeState, remaining_secs: u64) {
+pub fn watched_state_badge(ui: &mut Ui, state: EpisodeState, score: f32, remaining_secs: u64) {
     let (text, shape, color) = match state {
-        EpisodeState::Overloaded => (
-            strings::WATCHED_BADGE_OVERLOADED.to_string(),
-            SeverityShape::Triangle,
-            COLOR_DESTRUCTIVE,
-        ),
+        EpisodeState::Overloaded => {
+            let severity = Severity::from_score(score);
+            let (label, shp, clr) = severity_indicator(severity);
+            (label.to_string(), shp, clr)
+        }
         EpisodeState::Cooling => (
             format!(
                 "{}{}{}",
@@ -556,10 +556,14 @@ pub fn mini_sparkline(ui: &mut Ui, values: &[f32], width: f32, height: f32) {
 }
 
 /// Renders a compact badge/tag marking a process row as actively monitored.
-pub fn watched_tag(ui: &mut Ui) {
+pub fn watched_tag(ui: &mut Ui, severity: Severity) {
     let font_id = egui::FontId::proportional(FONT_SIZE_CAPTION);
     let text = strings::BADGE_WATCHED_TAG;
-    let color = COLOR_WARNING;
+    let color = match severity {
+        Severity::Culprit => COLOR_DESTRUCTIVE,
+        Severity::Suspicious => COLOR_WARNING,
+        Severity::Normal => COLOR_WARNING,
+    };
     let bg_color = color.gamma_multiply(0.18);
 
     let galley = ui

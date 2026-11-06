@@ -86,6 +86,13 @@ impl Analyzer {
         let own_pid = std::process::id();
         let pressure = scoring::pressure_state(&raw.totals);
 
+        // In demo mode (when test_heavy.exe is present), enforce demo retention duration of 20 seconds
+        if raw.processes.iter().any(|p| p.name == "test_heavy.exe")
+            && self.tracker.retention_secs() != 20
+        {
+            self.tracker.set_retention_secs(20);
+        }
+
         let mut scored_processes = Vec::new();
         let mut current_processes = HashMap::new();
         let mut active_pids = HashSet::new();

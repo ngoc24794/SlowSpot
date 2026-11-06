@@ -3,10 +3,11 @@
 
 use eframe::egui::{self, Color32, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2};
 
-use crate::model::ScoredProcess;
+use crate::model::{ScoredProcess, Severity};
 use crate::ui::palette::{
-    COLOR_BORDER_SUBTLE, COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND,
-    COLOR_PROTECTED, COLOR_SELECTED_ROW, FONT_SIZE_BODY, FONT_SIZE_CAPTION, RADIUS_SM,
+    COLOR_BORDER_SUBTLE, COLOR_DESTRUCTIVE, COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED,
+    COLOR_MUTED_FOREGROUND, COLOR_PROTECTED, COLOR_SELECTED_ROW, COLOR_WARNING, FONT_SIZE_BODY,
+    FONT_SIZE_CAPTION, RADIUS_SM,
 };
 use crate::ui::state::{format_bps, format_bytes, format_percent, SortColumn, SortDirection};
 use crate::ui::strings;
@@ -169,11 +170,15 @@ pub fn render_process_row(
     let row_clip = ui.clip_rect().intersect(rect);
     let p = ui.painter().with_clip_rect(row_clip);
 
-    // 1. Background styling: selection > hover > group member highlight > zebra alternating
+    // 1. Background styling: selection > hover > culprit/suspicious level highlight > group member > zebra
     let bg_color = if is_selected {
         COLOR_SELECTED_ROW
     } else if resp.hovered() {
         COLOR_MUTED
+    } else if proc.severity == Severity::Culprit {
+        COLOR_DESTRUCTIVE.gamma_multiply(0.12)
+    } else if proc.severity == Severity::Suspicious {
+        COLOR_WARNING.gamma_multiply(0.10)
     } else if group_count.is_some() {
         COLOR_INFO.gamma_multiply(0.08)
     } else if row_idx % 2 == 1 {
@@ -186,10 +191,15 @@ pub fn render_process_row(
         p.rect_filled(rect, RADIUS_SM, bg_color);
     }
 
-    // 2. Left accent bar for selected row
+    // 2. Left accent bar for selected row, colored by level
     if is_selected {
+        let accent_color = match proc.severity {
+            Severity::Culprit => COLOR_DESTRUCTIVE,
+            Severity::Suspicious => COLOR_WARNING,
+            Severity::Normal => COLOR_INFO,
+        };
         let accent_rect = Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height()));
-        p.rect_filled(accent_rect, 1.5, COLOR_INFO);
+        p.rect_filled(accent_rect, 1.5, accent_color);
     }
 
     // 3. Subtle bottom row divider
@@ -221,7 +231,7 @@ pub fn render_process_row(
                 widgets::draw_lock_icon(ui, COLOR_PROTECTED);
             }
             if is_watched {
-                widgets::watched_tag(ui);
+                widgets::watched_tag(ui, proc.severity);
             }
             if let Some(count) = group_count {
                 widgets::group_tag(ui, count);

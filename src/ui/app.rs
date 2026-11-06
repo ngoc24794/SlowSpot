@@ -17,11 +17,10 @@ use crate::model::{ActionCommand, Episode, PressureBreakdown, ScoredProcess, Sys
 use crate::ui::actions::ActionRunner;
 use crate::ui::charts::{self, SparklineConfig};
 use crate::ui::palette::{
-    PressureShape, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_CULPRIT, COLOR_BG_CARD_SMOOTH,
-    COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_DESTRUCTIVE_TEXT,
-    COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED, COLOR_MUTED_FOREGROUND, COLOR_WARNING,
-    FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING, FONT_SIZE_SUBHEADING, FONT_SIZE_TINY,
-    RADIUS_LG, RADIUS_MD, RADIUS_SM,
+    level_tokens, PressureShape, COLOR_ACCENT_OK, COLOR_BG, COLOR_BG_CARD_SMOOTH, COLOR_BORDER,
+    COLOR_BORDER_SUBTLE, COLOR_CARD, COLOR_DESTRUCTIVE, COLOR_FOREGROUND, COLOR_INFO, COLOR_MUTED,
+    COLOR_MUTED_FOREGROUND, COLOR_WARNING, FONT_SIZE_BODY, FONT_SIZE_CAPTION, FONT_SIZE_HEADING,
+    FONT_SIZE_SUBHEADING, FONT_SIZE_TINY, RADIUS_LG, RADIUS_MD, RADIUS_SM,
 };
 use crate::ui::state::{
     format_bottleneck_explanation, format_bps, format_bytes, format_episode_time_str,
@@ -526,8 +525,9 @@ impl SlowSpotApp {
         let banner_state = evaluate_hero_banner_state(culprit.as_ref(), pressure, breakdown);
 
         let (fill_color, border_color) = match &banner_state {
-            HeroBannerState::Culprit(_) => {
-                (COLOR_BG_CARD_CULPRIT, COLOR_DESTRUCTIVE.gamma_multiply(0.4))
+            HeroBannerState::Culprit(target) => {
+                let tokens = level_tokens(target.severity);
+                (tokens.bg, tokens.border)
             }
             HeroBannerState::HighPressureNoCulprit { color, .. } => {
                 (COLOR_MUTED, color.gamma_multiply(0.4))
@@ -547,14 +547,15 @@ impl SlowSpotApp {
             ui.set_width(ui.available_width());
             match banner_state {
                 HeroBannerState::Culprit(target) => {
+                    let tokens = level_tokens(target.severity);
                     let pid = target.record.pid;
                     let killable = target.killable;
 
                     // Row 1: Header (Title, Severity Badge, Protected Badge, Culprit Score)
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(strings::HERO_TITLE)
-                                .color(COLOR_DESTRUCTIVE_TEXT)
+                            RichText::new(tokens.title)
+                                .color(tokens.border)
                                 .size(FONT_SIZE_CAPTION)
                                 .strong(),
                         );
@@ -576,7 +577,7 @@ impl SlowSpotApp {
                                     strings::HERO_SCORE_LABEL,
                                     target.score
                                 ))
-                                .color(COLOR_DESTRUCTIVE_TEXT)
+                                .color(tokens.border)
                                 .size(FONT_SIZE_BODY)
                                 .strong(),
                             );
@@ -1016,6 +1017,7 @@ impl SlowSpotApp {
             .as_ref()
             .map(|s| s.timestamp_ms)
             .unwrap_or(0);
+        let retention_secs = if self.demo { 20 } else { 120 };
         let row_frame = egui::Frame::new()
             .fill(COLOR_BG)
             .corner_radius(RADIUS_SM)
@@ -1024,8 +1026,32 @@ impl SlowSpotApp {
 
         row_frame.show(ui, |ui| {
             ui.horizontal(|ui| {
+                // Expand toggle for group episodes
+                if ep.is_group() {
+                    let group_key = ep.name.to_lowercase();
+                    let is_expanded = self.state.expanded_groups.contains(&group_key);
+                    let toggle_sym = if is_expanded { "▼" } else { "▶" };
+                    if ui
+                        .small_button(toggle_sym)
+                        .on_hover_text("Bấm để mở rộng / thu gọn danh sách PID")
+                        .clicked()
+                    {
+                        if is_expanded {
+                            self.state.expanded_groups.remove(&group_key);
+                        } else {
+                            self.state.expanded_groups.insert(group_key);
+                        }
+                    }
+                }
+
                 // 1. State badge with geometric icon and text
-                widgets::watched_state_badge(ui, ep.state, ep.cooldown_remaining_secs(now_ms, 120));
+                let cur_score = ep.score_history.last().copied().unwrap_or(ep.peak_score);
+                widgets::watched_state_badge(
+                    ui,
+                    ep.state,
+                    cur_score,
+                    ep.cooldown_remaining_secs(now_ms, retention_secs),
+                );
                 ui.add_space(4.0);
 
                 // 2. Name & PID (or group count)
@@ -1061,16 +1087,26 @@ impl SlowSpotApp {
 
                 ui.add_space(6.0);
 
-                // 4. Peak stats: CPU / RAM / Disk
-                let peak_cpu_str = format!("Đỉnh CPU: {}", format_percent(ep.peak_cpu));
-                let peak_ram_str = format!("RAM: {}", format_bytes(ep.peak_ram_bytes));
-                let peak_disk_str = format!("Đĩa: {}", format_bps(ep.peak_disk_bps));
+                // 4. Peak stats: CPU / RAM / Disk (show only non-zero peaks labeled 'Đỉnh')
+                let mut peaks = Vec::new();
+                if ep.peak_cpu > 0.05 {
+                    peaks.push(format!("CPU: {}", format_percent(ep.peak_cpu)));
+                }
+                if ep.peak_ram_bytes > 0 {
+                    peaks.push(format!("RAM: {}", format_bytes(ep.peak_ram_bytes)));
+                }
+                if ep.peak_disk_bps > 0.05 {
+                    peaks.push(format!("Đĩa: {}", format_bps(ep.peak_disk_bps)));
+                }
 
-                ui.label(
-                    RichText::new(format!("{peak_cpu_str} • {peak_ram_str} • {peak_disk_str}"))
-                        .color(COLOR_MUTED_FOREGROUND)
-                        .size(FONT_SIZE_CAPTION),
-                );
+                if !peaks.is_empty() {
+                    let peak_str = format!("Đỉnh {}", peaks.join(" • "));
+                    ui.label(
+                        RichText::new(peak_str)
+                            .color(COLOR_MUTED_FOREGROUND)
+                            .size(FONT_SIZE_CAPTION),
+                    );
+                }
 
                 // 5. Mini sparkline of score history
                 ui.add_space(4.0);
@@ -1195,6 +1231,47 @@ impl SlowSpotApp {
                     }
                 });
             });
+
+            // Expandable member PIDs list for group episodes
+            if ep.is_group() && self.state.expanded_groups.contains(&ep.name.to_lowercase()) {
+                ui.add_space(3.0);
+                let member_pids: Vec<u32> = self
+                    .state
+                    .latest_snapshot
+                    .as_ref()
+                    .map(|s| {
+                        s.processes
+                            .iter()
+                            .filter(|p| p.record.name.eq_ignore_ascii_case(&ep.name))
+                            .map(|p| p.record.pid)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(20.0);
+                    ui.label(
+                        RichText::new("Các PID thành viên:")
+                            .color(COLOR_MUTED_FOREGROUND)
+                            .size(FONT_SIZE_TINY),
+                    );
+                    for pid in member_pids {
+                        let badge = egui::Frame::new()
+                            .fill(COLOR_MUTED)
+                            .corner_radius(RADIUS_SM)
+                            .inner_margin(Margin::symmetric(4, 1))
+                            .stroke(Stroke::new(1.0, COLOR_BORDER_SUBTLE));
+                        badge.show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!("PID: {pid}"))
+                                    .color(COLOR_FOREGROUND)
+                                    .monospace()
+                                    .size(FONT_SIZE_TINY),
+                            );
+                        });
+                    }
+                });
+            }
         });
     }
 
@@ -1771,8 +1848,16 @@ impl SlowSpotApp {
                             .color(COLOR_BORDER_SUBTLE)
                             .size(FONT_SIZE_CAPTION),
                     );
+                    let ts = self
+                        .state
+                        .latest_snapshot
+                        .as_ref()
+                        .map(|s| s.timestamp_ms)
+                        .unwrap_or(crate::collector::MockSource::BASE_TIMESTAMP_MS);
+                    let (phase_name, rem_secs) = crate::collector::MockSource::demo_phase_at(ts);
+                    let demo_str = format!("[DEMO] Giai đoạn: {} · còn {}s", phase_name, rem_secs);
                     ui.label(
-                        RichText::new(format!("[{}]", strings::BADGE_DEMO))
+                        RichText::new(demo_str)
                             .color(COLOR_WARNING)
                             .size(FONT_SIZE_CAPTION)
                             .strong(),

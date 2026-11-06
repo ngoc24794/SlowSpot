@@ -30,6 +30,8 @@ pub const TOOLTIP_RESUME_BUTTON: &str =
 
 // Top Culprit Hero Card
 pub const HERO_TITLE: &str = "THỦ PHẠM CHÍNH";
+pub const HERO_TITLE_CULPRIT: &str = "THỦ PHẠM CHÍNH";
+pub const HERO_TITLE_SUSPICIOUS: &str = "ĐÁNG NGỜ";
 pub const HERO_NO_CULPRIT: &str = "Máy đang chạy mượt, không có thủ phạm";
 pub const HERO_NO_CULPRIT_SUB: &str =
     "Hệ thống đang hoạt động ổn định, các tiến trình trong ngưỡng an toàn.";
@@ -153,6 +155,8 @@ mod tests {
         TOOLTIP_PAUSE_BUTTON,
         TOOLTIP_RESUME_BUTTON,
         HERO_TITLE,
+        HERO_TITLE_CULPRIT,
+        HERO_TITLE_SUSPICIOUS,
         HERO_NO_CULPRIT,
         HERO_NO_CULPRIT_SUB,
         HERO_PRESSURE_OVERLOADED,
